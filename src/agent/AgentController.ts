@@ -11,6 +11,7 @@ import { TaskStore, taskStore } from '../store/taskStore';
 import { FileStore, fileStore } from '../store/fileStore';
 import type { ActionRecord } from '../shared/types';
 import { hashText } from '../utils/hashing';
+import { modelBackendStore } from '../store/modelBackendStore';
 
 export type RunBudget={maxTurns:number;maxActions:number;maxMs:number;maxNoProgressTurns:number;maxRepeatedFailures:number;maxConsecutiveReadOnlyTurns:number};
 const DEFAULT_BUDGET:RunBudget={maxTurns:20,maxActions:40,maxMs:180000,maxNoProgressTurns:4,maxRepeatedFailures:3,maxConsecutiveReadOnlyTurns:6};
@@ -19,7 +20,13 @@ const normalize = (v: unknown): unknown => Array.isArray(v) ? v.map(normalize) :
 const normalizeObs = (s: string) => s.trim().replace(/\s+/g, ' ').slice(0, 280);
 
 export class AgentController {
-  constructor(private readonly provider = new LocalOpenAIModelProvider(), private readonly browser = new ManagedBrowser(), private readonly store: TaskStore = taskStore, private readonly files: FileStore = fileStore) {}
+  constructor(
+    private readonly provider = new LocalOpenAIModelProvider(),
+    private readonly browser = new ManagedBrowser(),
+    private readonly store: TaskStore = taskStore,
+    private readonly files: FileStore = fileStore,
+    private readonly getBackendConfig = () => modelBackendStore.getConfig()
+  ) {}
   async createTask(input:{goal:string}){ const id=`t_${Date.now()}`; this.store.createTask({id,userGoal:input.goal,status:'idle',pendingUserQuestion:null,finalAnswer:null,pendingProposalId:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}); this.store.saveCompactState(id,createInitialCompactState(input.goal)); return this.getTaskState(id); }
   private event(taskId:string,type:string,summary:string,refId?:string){ this.store.appendEvent(taskId,{id:`e_${Date.now()}_${Math.random()}`,taskId,type,summary:sanitize(summary),at:new Date().toISOString(),refId}); }
   private progressFingerprint(taskId: string, action: any, out: ActionExecutionResult, compact: any) {
@@ -67,10 +74,17 @@ export class AgentController {
       }
     }
   }
+  private configureProvider(taskId: string){
+    const cfg = this.getBackendConfig();
+    if (typeof (this.provider as any).configure === 'function') (this.provider as any).configure(cfg.endpointUrl, cfg.modelName ?? 'local-model');
+    const safeEndpoint = cfg.endpointUrl.replace(/\/chat\/completions$/, '').replace(/\/+$/, '');
+    this.event(taskId,'model_backend_config',`Using model backend endpoint=${safeEndpoint} model=${cfg.modelName ?? 'local-model'} mode=${cfg.mode}`);
+  }
   async stepTask(taskId:string){ const task:any=this.store.getTask(taskId); if(!task) throw new Error('task_not_found');
     this.event(taskId,'turn_started','Turn started');
     const compact=this.store.getCompactState(taskId) ?? createInitialCompactState(task.userGoal);
     const packet=buildContextPacket({taskId,userGoal:task.userGoal,currentObjective:compact.currentObjective,compactState:compact,snapshot:this.browser.getCurrentSnapshot(),recentActions:this.store.getActions(taskId).map((a:any)=>({type:a.type,status:a.status,observation:a.observationSummary||a.error||''})),failedAttempts:compact.failedAttempts,fileSummaries:this.files.listFilesForTask(taskId).map((f:any)=>f.summary).filter(Boolean),allowedActionTypes:['open_url','read_current_page','click_candidate','fill_field','ask_user','final_answer'],recoveryHint:task.recoveryHint,userAnswers:compact.userProvidedAnswers,pendingUserQuestion:task.pendingUserQuestion,pendingApproval:task.pendingProposalId?this.store.getAction(taskId,task.pendingProposalId):null,noProgressSummary: task.lastProgressFingerprint ? `Recent no-progress count: ${task.noProgressTurns ?? 0}` : undefined,repeatedFailureSummary: task.repeatedFailureCount ? `Repeated failures: ${task.repeatedFailureCount}` : undefined});
+    this.configureProvider(taskId);
     this.event(taskId,'model_request_started','Model request started');
     const action=await this.generateActionWithRepair(packet); this.event(taskId,'model_response_received',action.type);
     return this.persistProposalAndMaybeExecute(taskId,action);
