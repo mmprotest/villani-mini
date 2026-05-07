@@ -18,3 +18,16 @@ test('candidate validation failure returns structured result', async ()=>{
   expect(out.ok).toBe(false);
   expect(out.error).toMatch(/Unknown candidate/);
 });
+
+test('snapshotId is forwarded and stale/unknown field fail safely', async ()=>{
+  const browser:any = {
+    clickCandidate: vi.fn().mockResolvedValue({ ok:false, error:'Stale snapshot ID' }),
+    fillField: vi.fn().mockResolvedValue({ ok:false, error:'Unknown field ID' })
+  };
+  const click = await executeAction({ type:'click_candidate', params:{ candidateId:'c_1', snapshotId:'stale-1' } }, browser, ()=>{});
+  const fill = await executeAction({ type:'fill_field', params:{ fieldId:'f_2', value:'abc', expectedSnapshotId:'stale-1' } }, browser, ()=>{});
+  expect(browser.clickCandidate).toHaveBeenCalledWith('c_1', 'stale-1');
+  expect(click.ok).toBe(false);
+  expect(fill.ok).toBe(false);
+  expect(fill.error).toMatch(/Unknown field ID/);
+});
