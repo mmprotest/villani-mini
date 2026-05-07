@@ -38,7 +38,7 @@ export class LocalAssetManager {
     const modelOk=!!model&&this.validateModel(model); const binOk=!!bin&&this.validateResolvedBinary(bin);
     if(!modelOk || !binOk){ const msg=!modelOk?`Model validation failed for ${model}`:`Binary validation failed for ${bin?.path} from ${bin?.source}`; this.set({state:'failed',modelStatus:modelOk?'ready':'failed',serverStatus:binOk?'ready':'failed',lastError:msg}); return this.getStatus(); }
     this.saveCfg({modelPath:model,llamaServerPath:bin.path,modelSource:'downloaded',llamaServerSource:bin.source});
-    this.set({state:'ready',modelStatus:'ready',serverStatus:'ready',modelPath:model,llamaServerPath:bin.path}); this.logger.info('assets','ready','asset ready',{model,bin:bin.path}); return this.getStatus();
+    this.set({state:'ready',modelStatus:'ready',serverStatus:'ready',modelPath:model,llamaServerPath:bin.path}); this.logger.info('assets','ready','asset ready',{modelPath:model,backendExecutablePath:bin.path,source:bin.source}); return this.getStatus();
   }
   private fail(e:any){ const m=String(e?.message||e); this.logger.error('assets','failed','final ready or failure',{message:m},e); this.set({state:'failed',modelStatus:'failed',serverStatus:'failed',lastError:m}); }
   findModel(){ const c=[this.modelDefault(),this.cfg().modelPath].filter(Boolean) as string[]; this.logger.debug('assets','model_candidates','model search candidates',c); return c.find((p)=>this.validateModel(p)); }

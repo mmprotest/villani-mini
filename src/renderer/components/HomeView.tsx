@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { formatTraceRow, redactSensitive } from './taskDebug';
 
 type View = 'Home' | 'Activities' | 'Browser Control' | 'Commands' | 'History' | 'Settings';
 type Task = { id: string; status: string; createdAt?: string; finalAnswer?: { blockedReason?: string; summary?: string }; updatedAt?: string; userGoal?: string };
@@ -35,9 +36,12 @@ export default function HomeView() {
   const [cfgEdit, setCfgEdit] = useState<any>({ endpointUrl: '', modelName: '', mode: '' });
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [responseError, setResponseError] = useState('');
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
   const [debugOpen, setDebugOpen] = useState(false);
   const [view, setView] = useState<View>('Home');
   const [advanced, setAdvanced] = useState(false);
+  const [expandedTask, setExpandedTask] = useState<string | null>(null);
 
   const loadTasks = async () => { setTaskError(''); try { setTasks(await window.villani.task.list()); } catch (e: any) { setTaskError(String(e?.message || e)); } };
   const loadBrowser = async () => { try { setBrowserInfo(await window.villani.browser.getStatus()); } catch (e: any) { setBrowserError(String(e?.message || e)); } };
@@ -58,6 +62,9 @@ export default function HomeView() {
 
   const ready = ['running', 'attached'].includes(backend?.status) && assets?.state === 'ready';
   const setupFailed = assets?.state === 'failed' || backend?.status === 'failed';
+  const assetFailed = assets?.state === 'failed';
+  const backendFailed = backend?.status === 'failed' && assets?.state === 'ready';
+  const providerFailed = backend?.status === 'failed' && backend?.processMode === 'attached';
   const statusLabel = ready ? 'Agent Online' : setupFailed ? 'Agent Offline' : 'Setting up';
 
   const send = async (instruction: string) => {
@@ -70,6 +77,35 @@ export default function HomeView() {
   const openTask = async (id: string) => { setTaskLoading(true); setTaskError(''); try { setSelectedTask(await window.villani.task.getState(id)); } catch (e:any) { setTaskError(String(e?.message || e)); } finally { setTaskLoading(false); } };
 
   const quick = useMemo(() => ['Summarize this page', 'Open Downloads folder', 'Find recent invoices', 'Take a screenshot'], []);
+
+  const respondToApproval = async (message: any, approve: boolean) => {
+    if (!message?.taskId || !message?.proposalId) {
+      setResponseError('Approval request is missing task or proposal id.');
+      return;
+    }
+    try {
+      const out = approve
+        ? await window.villani.chat.approve(message.taskId, message.proposalId)
+        : await window.villani.chat.reject(message.taskId, message.proposalId, 'Rejected by user');
+      if (Array.isArray(out)) setMessages(out);
+      setResponseError('');
+    } catch (e) {
+      setResponseError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const submitUserAnswer = async (message: any) => {
+    const answer = (questionAnswers[message.id] || '').trim();
+    if (!message?.taskId || !answer) return;
+    try {
+      const out = await window.villani.chat.answer(message.taskId, answer);
+      if (Array.isArray(out)) setMessages(out);
+      setQuestionAnswers((prev) => ({ ...prev, [message.id]: '' }));
+      setResponseError('');
+    } catch (e) {
+      setResponseError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return <div className='app-shell'>
     <aside className='sidebar'>
@@ -104,6 +140,6 @@ export default function HomeView() {
       {view === 'Settings' && <div className='panel'><h2>Settings</h2><p>Base URL: {backend?.endpointUrl || cfg?.endpointUrl || 'n/a'}</p><p>Model: {cfg?.modelName || 'local-model'}</p><p>Mode: {cfg?.mode || 'n/a'}</p><p>Health: {backend?.status || 'unknown'}</p><p>Assets: {assets?.state || 'unknown'}</p><div className='row-actions'><button onClick={() => window.villani.assets.retry()}>Retry assets</button><button onClick={() => window.villani.backend.retry()}>Retry backend</button><button onClick={() => { window.villani.assets.retry(); window.villani.backend.retry(); }}>Retry full setup</button></div><h3>Manual backend config</h3><div className='row-actions'><input value={cfgEdit.endpointUrl} onChange={(e)=>setCfgEdit({...cfgEdit,endpointUrl:e.target.value})} placeholder='endpoint url' /><input value={cfgEdit.modelName} onChange={(e)=>setCfgEdit({...cfgEdit,modelName:e.target.value})} placeholder='model name' /><select value={cfgEdit.mode} onChange={(e)=>setCfgEdit({...cfgEdit,mode:e.target.value})}><option value='bundled_llama_server'>bundled_llama_server</option><option value='external_openai_compatible'>external_openai_compatible</option></select><button onClick={async()=>{ await window.villani.config.updateBackendConfig(cfgEdit); await loadConfig(); }}>Save config</button></div></div>}
     </section>
 
-    {debugOpen && <div className='drawer'><button onClick={() => setDebugOpen(false)}>Close</button><details><summary>Status</summary><pre>{JSON.stringify({ backend: backend?.status, assets: assets?.state }, null, 2)}</pre></details><details><summary>Raw backend JSON</summary><pre>{JSON.stringify({ backend, assets }, null, 2)}</pre></details></div>}
+    {debugOpen && <div className='drawer'><button onClick={() => setDebugOpen(false)}>Close</button><details><summary>Status</summary><pre>{JSON.stringify({ backend: backend?.status, assets: assets?.state }, null, 2)}</pre></details></div>}
   </div>;
 }
