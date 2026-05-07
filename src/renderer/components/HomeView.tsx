@@ -8,16 +8,28 @@ const navItems: View[] = ['Home', 'Activities', 'Browser Control', 'Commands', '
 
 const actionCatalog = {
   browser: [
-    { name: 'open_url', approval: true, desc: 'Open a URL in managed browser.' },
-    { name: 'read_current_page', approval: false, desc: 'Capture current page candidates and fields.' },
-    { name: 'click_candidate', approval: true, desc: 'Click an extracted clickable candidate.' },
-    { name: 'fill_field', approval: true, desc: 'Fill an extracted form field.' }
+    { name: 'open_url', approval: 'usually safe', desc: 'Open a URL in the managed browser context.' },
+    { name: 'read_current_page', approval: 'usually safe', desc: 'Read the current managed page to extract candidates and fields.' },
+    { name: 'click_candidate', approval: 'approval for risky target', desc: 'Click a candidate element from the latest managed page snapshot.' },
+    { name: 'fill_field', approval: 'approval for risky target', desc: 'Fill a detected field on the currently managed page.' }
+  ],
+  desktop: [
+    { name: 'observe_desktop', approval: 'usually safe', desc: 'Observe the desktop state so the agent can reason about visible UI.' },
+    { name: 'take_screenshot', approval: 'usually safe', desc: 'Capture a desktop screenshot for grounding and follow-up actions.' },
+    { name: 'open_path', approval: 'approval for risky target', desc: 'Open a local path in the desktop environment.' }
+  ],
+  file: [
+    { name: 'list_directory', approval: 'usually safe', desc: 'List files and folders at a target path.' },
+    { name: 'read_file', approval: 'approval outside safe paths', desc: 'Read a file from disk, with tighter checks beyond safe paths.' },
+    { name: 'write_file', approval: 'always approval', desc: 'Write or overwrite file contents on disk.' }
+  ],
+  shell: [
+    { name: 'run_shell_command', approval: 'always approval', desc: 'Execute a shell command in the local environment.' }
   ],
   task: [
-    { name: 'ask_user', approval: false, desc: 'Ask for user input when needed.' },
-    { name: 'final_answer', approval: false, desc: 'Finish with final answer or blocked reason.' }
-  ],
-  desktop: [], file: [], shell: []
+    { name: 'ask_user', approval: 'usually safe', desc: 'Ask the user a follow-up question when required information is missing.' },
+    { name: 'final_answer', approval: 'usually safe', desc: 'Return the final response or blocked outcome for the task.' }
+  ]
 } as const;
 
 export default function HomeView() {
@@ -133,7 +145,7 @@ export default function HomeView() {
 
       {view === 'Browser Control' && <div className='panel'><h2>Browser Control</h2>{browserError && <p>{browserError}</p>}<p>Status: {browserInfo ? 'available' : 'no snapshot yet'}</p><p>URL: {browserInfo?.url || 'n/a'}</p><p>Title: {browserInfo?.title || 'n/a'}</p><p>Snapshot: {(browserInfo?.clickableCandidates || []).length} candidates · {(browserInfo?.formFields || []).length} fields · {browserInfo?.timestamp || browserInfo?.capturedAt || 'n/a'}</p><div className='row-actions'><input value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder='https://example.com' /><button disabled={browserBusy || !urlInput.trim()} onClick={async()=>{ setBrowserBusy(true); setBrowserError(''); try { setBrowserInfo(await window.villani.browser.openUrl(urlInput.trim())); } catch (e:any){ setBrowserError(String(e?.message||e)); } finally { setBrowserBusy(false); } }}>Open URL</button><button disabled={browserBusy} onClick={async()=>{ setBrowserBusy(true); setBrowserError(''); try { setBrowserInfo(await window.villani.browser.readCurrentPage()); } catch (e:any){ setBrowserError(String(e?.message||e)); } finally { setBrowserBusy(false); } }}>Read current page</button></div></div>}
 
-      {view === 'Commands' && <div className='panel'><h2>Commands</h2>{Object.entries(actionCatalog).map(([k, vals]) => <div key={k}><h3>{k}</h3>{vals.length===0?<p className='subtle'>No actions available in this build.</p>:vals.map((v)=><div className='msg' key={v.name}><b>{v.name}</b> · approval: {String(v.approval)}<div className='subtle'>{v.desc}</div></div>)}</div>)}</div>}
+      {view === 'Commands' && <div className='panel'><h2>Commands</h2>{Object.entries(actionCatalog).map(([k, vals]) => <div key={k}><h3>{k}</h3>{vals.length===0?<p className='subtle'>No actions available in this build.</p>:vals.map((v)=><div className='msg' key={v.name}><b>{v.name}</b> · default: {v.approval}<div className='subtle'>{v.desc}</div></div>)}</div>)}</div>}
 
       {view === 'History' && <div className='panel'><h2>History</h2>{tasks.filter(t => ['completed','blocked','error','stopped'].includes(t.status)).map((t)=><div key={t.id} className='msg'><b>{t.userGoal || t.id}</b><div className='subtle'>{t.status}</div><button onClick={() => void openTask(t.id)}>View final/debug</button></div>)}{taskLoading && <p>Loading...</p>}{selectedTask && <pre>{JSON.stringify({finalAnswer:selectedTask.finalAnswer,blockReason:selectedTask.finalAnswer?.blockedReason,debugSummary:selectedTask.events?.slice(-10),errors:selectedTask.errors},null,2)}</pre>}</div>}
 
