@@ -10,11 +10,12 @@ export function buildContextPacket(input:ContextPacketInput){
     currentObjective: truncate(input.currentObjective, 400),
     compactState: input.compactState,
     browser: input.snapshot ? {
+      snapshotId: input.snapshot.snapshotId,
       url: input.snapshot.url,
       title: truncate(input.snapshot.title, 200),
       status: input.snapshot.status,
       visiblePageSummary: truncate(input.snapshot.textExcerpt || '', 500),
-      candidates: (input.snapshot.clickableCandidates || []).slice(0, 20).map(c => ({ id: c.id, label: c.label || c.text, role: c.role, href: c.href, riskHints: c.riskHints })),
+      candidates: (input.snapshot.clickableCandidates || []).slice(0, 20).map(c => ({ id: c.id, label: c.label || c.text, role: c.role, href: c.href, riskHints: c.riskHints, isSubmitLike: c.isSubmitLike, isDangerous: c.isDangerous, reasonFlags: c.reasonFlags })),
       fields: (input.snapshot.formFields || []).slice(0, 20).map(f => ({ id: f.id, label: f.label, type: f.type, sensitive: f.sensitive }))
     } : null,
     recentActions: (input.recentActions || []).slice(-8),
@@ -30,5 +31,5 @@ export function buildContextPacket(input:ContextPacketInput){
 }
 
 export function buildActionPrompt(packet:string){
-return `You are a browser task agent. Return exactly ONE JSON action object.\nAllowed action contract:\n{type,params,meta:{title,reason,expectedOutcome}}\nContext packet:\n${packet}`;
+return `You are a browser task agent. Return exactly ONE JSON action object.\nAllowed action contract:\n{type,params,meta:{title,reason,expectedOutcome}}\nWhen using click_candidate or fill_field, include snapshotId from browser.snapshotId in params.\nContext packet:\n${packet}`;
 }

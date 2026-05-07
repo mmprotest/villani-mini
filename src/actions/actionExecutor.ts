@@ -31,13 +31,15 @@ export async function executeAction(action: any, browser: ManagedBrowser, setPau
       }
       case 'click_candidate': {
         if (!params.candidateId) return { ok: false, actionType: action.type, observationSummary: 'Missing candidateId', evidenceRefs: [], error: 'missing candidateId' };
-        const out = await browser.clickCandidate(String(params.candidateId), typeof params.expectedSnapshotId === 'string' ? params.expectedSnapshotId : undefined);
+        const expectedSnapshotId = typeof params.expectedSnapshotId === 'string' ? params.expectedSnapshotId : (typeof params.snapshotId === 'string' ? params.snapshotId : undefined);
+        const out = await browser.clickCandidate(String(params.candidateId), expectedSnapshotId);
         if (!out.ok) return { ok: false, actionType: action.type, observationSummary: out.error ?? 'Click failed', evidenceRefs: [], error: out.error };
         return { ok: true, actionType: action.type, observationSummary: `Clicked ${params.candidateId}; now ${out.snapshot.url} (${out.snapshot.title})`, evidenceRefs: snapRef(out.snapshot), browserSnapshot: out.snapshot, changedPageState: true };
       }
       case 'fill_field': {
         if (!params.fieldId) return { ok: false, actionType: action.type, observationSummary: 'Missing fieldId', evidenceRefs: [], error: 'missing fieldId' };
-        const out = await browser.fillField(String(params.fieldId), String(params.value ?? ''), typeof params.expectedSnapshotId === 'string' ? params.expectedSnapshotId : undefined);
+        const expectedSnapshotId = typeof params.expectedSnapshotId === 'string' ? params.expectedSnapshotId : (typeof params.snapshotId === 'string' ? params.snapshotId : undefined);
+        const out = await browser.fillField(String(params.fieldId), String(params.value ?? ''), expectedSnapshotId);
         if (!out.ok) return { ok: false, actionType: action.type, observationSummary: out.error ?? 'Fill failed', evidenceRefs: [], error: out.error };
         return { ok: true, actionType: action.type, observationSummary: `Filled ${params.fieldId} with [REDACTED]`, evidenceRefs: snapRef(out.snapshot), browserSnapshot: out.snapshot, changedPageState: true };
       }

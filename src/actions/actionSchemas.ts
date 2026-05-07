@@ -12,8 +12,8 @@ export const finalAnswerPayloadSchema = z.object({
 export const actionSchema = z.discriminatedUnion('type',[
  z.object({type:z.literal('open_url'),params:z.object({url:z.string().url()}),meta:proposalMeta.optional()}),
  z.object({type:z.literal('read_current_page'),params:z.object({}),meta:proposalMeta.optional()}),
- z.object({type:z.literal('click_candidate'),params:z.object({candidateId:z.string()}),meta:proposalMeta.optional()}),
- z.object({type:z.literal('fill_field'),params:z.object({fieldId:z.string(),value:z.string(),valueDescription:z.string().optional()}),meta:proposalMeta.optional()}),
+ z.object({type:z.literal('click_candidate'),params:z.object({candidateId:z.string(),snapshotId:z.string().optional(),expectedSnapshotId:z.string().optional()}),meta:proposalMeta.optional()}),
+ z.object({type:z.literal('fill_field'),params:z.object({fieldId:z.string(),value:z.string(),valueDescription:z.string().optional(),snapshotId:z.string().optional(),expectedSnapshotId:z.string().optional()}),meta:proposalMeta.optional()}),
  z.object({type:z.literal('ask_user'),params:z.object({question:z.string(),options:z.array(z.string()).optional()}),meta:proposalMeta.optional()}),
  z.object({type:z.literal('final_answer'),params:finalAnswerPayloadSchema,meta:proposalMeta.optional()})
 ]);
