@@ -23,6 +23,7 @@ const inferTargetIds = (params: Record<string, unknown>) => Object.entries(param
   .filter(([k, v]) => /id$/i.test(k) && typeof v === 'string')
   .map(([, v]) => String(v))
   .sort();
+const FORCE_REFRESH_ACTIONS = ['read_current_page', 'observe_desktop'] as const;
 
 export class AgentController {
   private listeners = new Set<(event: any) => void>();
@@ -64,6 +65,20 @@ export class AgentController {
     const normalizedParams = normalize(action.params ?? {}) as Record<string, unknown>;
     return hashText(JSON.stringify({ actionName: action.type, params: normalizedParams, targetIds: inferTargetIds(normalizedParams) }));
   }
+  private nextRecoveryState(task: any, action: any, out: ActionExecutionResult) {
+    const actionSignature = this.actionCoreSignature(action);
+    const observationHash = hashText(normalizeObs(out.observationSummary || out.error || ''));
+    const prev = task.recoveryState ?? {};
+    const sameObservation = prev.lastObservationHash === observationHash;
+    const sameAction = prev.lastActionSignature === actionSignature;
+    const repeated = sameObservation && sameAction;
+    const repeatCount = repeated ? (prev.repeatCount ?? 0) + 1 : 0;
+    const stage = Math.min(repeatCount, 4);
+    return { actionSignature, observationHash, repeated, repeatCount, stage };
+  }
+  private isRiskyAction(actionType: string) {
+    return !['read_current_page', 'observe_desktop', 'ask_user', 'final_answer'].includes(actionType);
+  }
   async runTask(taskId:string, options?:Partial<RunBudget>){ const b={...DEFAULT_BUDGET,...options}; const start=Date.now(); let turns=0,actions=0,noProgress=0,repeatedFail=0,lastFp=''; this.store.updateTask(taskId,{status:'running'}); this.event(taskId,'task_started','Task run started');
     while(true){ if(Date.now()-start>b.maxMs || turns>=b.maxTurns || actions>=b.maxActions){ const blockedReason = noProgress>0 ? 'no_progress' : 'budget_exhausted'; this.store.updateTask(taskId,{status:'blocked',finalAnswer:{summary:blockedReason==='no_progress'?'Blocked due to repeated no-progress loop.':'Budget exhausted.',evidenceRefs:[],remainingSteps:['Refine objective and retry'],uncertainty:'high',blockedReason}}); this.event(taskId,'task_blocked',blockedReason); return this.getTaskState(taskId);} 
       const s:any=await this.stepTask(taskId); turns++; actions=s.actions.length;
@@ -101,7 +116,8 @@ export class AgentController {
   async stepTask(taskId:string){ const task:any=this.store.getTask(taskId); if(!task) throw new Error('task_not_found');
     this.event(taskId,'model_call_started','Turn started');
     const compact=this.store.getCompactState(taskId) ?? createInitialCompactState(task.userGoal);
-    const packet=buildContextPacket({taskId,userGoal:task.userGoal,currentObjective:compact.currentObjective,compactState:compact,snapshot:this.browser.getCurrentSnapshot(),recentActions:this.store.getActions(taskId).map((a:any)=>({type:a.type,status:a.status,observation:a.observationSummary||a.error||''})),failedAttempts:compact.failedAttempts,fileSummaries:this.files.listFilesForTask(taskId).map((f:any)=>f.summary).filter(Boolean),allowedActionTypes:['open_url','read_current_page','click_candidate','fill_field','ask_user','final_answer'],recoveryHint:task.recoveryHint,userAnswers:compact.userProvidedAnswers,pendingUserQuestion:task.pendingUserQuestion,pendingApproval:task.pendingProposalId?this.store.getAction(taskId,task.pendingProposalId):null,noProgressSummary: task.lastProgressFingerprint ? `Recent no-progress count: ${task.noProgressTurns ?? 0}` : undefined,repeatedFailureSummary: task.repeatedFailureCount ? `Repeated failures: ${task.repeatedFailureCount}` : undefined});
+    const recoveryState = task.recoveryState ?? {};
+    const packet=buildContextPacket({taskId,userGoal:task.userGoal,currentObjective:compact.currentObjective,compactState:compact,snapshot:this.browser.getCurrentSnapshot(),recentActions:this.store.getActions(taskId).map((a:any)=>({type:a.type,status:a.status,observation:a.observationSummary||a.error||''})),failedAttempts:compact.failedAttempts,fileSummaries:this.files.listFilesForTask(taskId).map((f:any)=>f.summary).filter(Boolean),allowedActionTypes:['open_url','read_current_page','click_candidate','fill_field','ask_user','final_answer'],recoveryHint:task.recoveryHint,userAnswers:compact.userProvidedAnswers,pendingUserQuestion:task.pendingUserQuestion,pendingApproval:task.pendingProposalId?this.store.getAction(taskId,task.pendingProposalId):null,noProgressSummary: task.lastProgressFingerprint ? `Recent no-progress count: ${task.noProgressTurns ?? 0}` : undefined,repeatedFailureSummary: task.repeatedFailureCount ? `Repeated failures: ${task.repeatedFailureCount}` : undefined,discouragedActions:recoveryState.discouragedActions ?? [],bannedNextActions:recoveryState.bannedNextActions ?? [],recoveryInstruction:recoveryState.recoveryInstruction});
     this.event(taskId,'model_call_started','Model request started');
     this.configureProvider(taskId);
     const action=await this.generateActionWithRepair(taskId, packet); this.event(taskId,'model_action_proposed',action.type);
@@ -138,6 +154,22 @@ export class AgentController {
   }
   private makeRecord(taskId:string, action:AgentAction): ActionRecord { const now=new Date().toISOString(); return {id:`p_${Date.now()}_${Math.random()}`,taskId,type:action.type,params:(action.params ?? {}) as Record<string, unknown>,title:action.meta?.title??action.type,reason:action.meta?.reason??'proposed',expectedOutcome:action.meta?.expectedOutcome??'progress',riskLevel:action.meta?.riskLevel??scoreRisk(JSON.stringify(action),'low'),requiresApproval:action.meta?.requiresApproval??requiresApproval(action.type,action.params,'low'),reversible:action.meta?.reversible??true,evidenceRefs:action.meta?.evidenceRefs??(Array.isArray((action.params as any).evidenceRefs)?(action.params as any).evidenceRefs:[]),createdAt:now,updatedAt:now,status:'proposed'}; }
   private async persistProposalAndMaybeExecute(taskId:string, action:AgentAction){ const proposal=this.makeRecord(taskId, action); this.store.appendAction(taskId,proposal); this.event(taskId,'model_action_proposed',proposal.type,proposal.id);
+    const task:any = this.store.getTask(taskId);
+    const recoveryState = task?.recoveryState ?? {};
+    if (recoveryState.stage >= 2 && recoveryState.bannedNextActionSignature && this.actionCoreSignature(action) === recoveryState.bannedNextActionSignature) {
+      this.store.updateAction(taskId,proposal.id,{status:'rejected',rejectionReason:'recovery_banned_next_action'});
+      const suggestion = recoveryState.suggestedNextAction ?? 'read_current_page';
+      this.store.updateTask(taskId,{status:'idle',recoveryHint:`Banned repeat action was re-proposed. Use ${suggestion} next.`,pendingProposalId:null,recoveryState:{...recoveryState,rejectedBannedCount:(recoveryState.rejectedBannedCount ?? 0)+1}});
+      this.event(taskId,'recovery_triggered',`stage=${recoveryState.stage};reason=banned_action_reproposed;banned=${recoveryState.bannedNextActionType ?? 'unknown'};suggested=${suggestion}`);
+      return this.getTaskState(taskId);
+    }
+    if (recoveryState.stage >= 3 && recoveryState.mustRefresh && this.isRiskyAction(action.type)) {
+      this.store.updateAction(taskId,proposal.id,{status:'rejected',rejectionReason:'recovery_requires_context_refresh'});
+      const suggestion = recoveryState.suggestedNextAction ?? 'read_current_page';
+      this.store.updateTask(taskId,{status:'idle',recoveryHint:`Context refresh required. Use ${suggestion} before risky actions.`,pendingProposalId:null});
+      this.event(taskId,'recovery_triggered',`stage=${recoveryState.stage};reason=context_refresh_required;suggested=${suggestion}`);
+      return this.getTaskState(taskId);
+    }
     if(proposal.requiresApproval && !['read_current_page','ask_user','final_answer'].includes(proposal.type)){ this.store.updateTask(taskId,{status:'waiting_for_approval',pendingProposalId:proposal.id}); this.event(taskId,'approval_required',proposal.type); return this.getTaskState(taskId);} return this.executeProposal(taskId,proposal.id);
   }
   async approveAction(taskId:string,proposalId:string){ this.store.updateAction(taskId,proposalId,{status:'approved'}); return this.executeProposal(taskId,proposalId); }
@@ -150,13 +182,44 @@ export class AgentController {
     const compact=updateCompactStateAfterObservation(this.store.getCompactState(taskId),a.type,out.observationSummary,{evidenceRefs:out.evidenceRefs,question:(a.params||{}).question,ok:out.ok}); this.store.saveCompactState(taskId,compact); this.event(taskId,'compact_state_updated',a.type);
     const fp = this.progressFingerprint(taskId, a, out, compact);
     this.store.updateTask(taskId,{lastProgressFingerprint:fp,noProgressTurns:0});
-    if(a.type==='ask_user'&&out.ok){ this.store.updateTask(taskId,{status:'waiting_for_user',pendingUserQuestion:{question:a.params.question,options:a.params.options||[]}}); this.event(taskId,'user_question',a.params.question); }
+    const task:any = this.store.getTask(taskId);
+    const nextRecovery = this.nextRecoveryState(task, a, out);
+    const snapshot = this.browser.getCurrentSnapshot();
+    const forcedAction = snapshot ? 'read_current_page' : 'observe_desktop';
+    const recoveryPatch:any = { lastActionSignature: nextRecovery.actionSignature, lastObservationHash: nextRecovery.observationHash, repeatCount: nextRecovery.repeatCount, stage: nextRecovery.stage, mustRefresh: false, discouragedActions: [], bannedNextActions: [], recoveryInstruction: undefined, suggestedNextAction: undefined, bannedNextActionSignature: undefined, bannedNextActionType: undefined };
+    if (nextRecovery.repeated) {
+      if (nextRecovery.stage === 1) {
+        recoveryPatch.discouragedActions = [a.type];
+        recoveryPatch.recoveryInstruction = `Repeated no-progress detected. Avoid repeating ${a.type} exactly.`;
+        this.event(taskId,'recovery_triggered',`stage=1;reason=repeat_no_progress;suggested=choose_alternative_action`);
+      } else if (nextRecovery.stage === 2) {
+        recoveryPatch.bannedNextActionSignature = nextRecovery.actionSignature;
+        recoveryPatch.bannedNextActionType = a.type;
+        recoveryPatch.bannedNextActions = [a.type];
+        recoveryPatch.suggestedNextAction = forcedAction;
+        recoveryPatch.recoveryInstruction = `Do not repeat ${a.type} with same parameters next turn.`;
+        this.event(taskId,'recovery_triggered',`stage=2;reason=exact_repeat;banned=${a.type};suggested=${forcedAction}`);
+      } else if (nextRecovery.stage === 3) {
+        recoveryPatch.mustRefresh = true;
+        recoveryPatch.suggestedNextAction = forcedAction;
+        recoveryPatch.recoveryInstruction = `Force context refresh using ${forcedAction} before any risky action.`;
+        this.event(taskId,'recovery_triggered',`stage=3;reason=staged_refresh_required;suggested=${forcedAction}`);
+      } else if (nextRecovery.stage >= 4) {
+        const reason = `Recovery exhausted after repeated no-progress action ${a.type}.`;
+        this.store.updateTask(taskId,{status:'blocked',pendingProposalId:null,recoveryHint:reason,recoveryState:recoveryPatch,finalAnswer:{summary:reason,evidenceRefs:out.evidenceRefs ?? [],remainingSteps:['Re-scope task or provide new constraints'],uncertainty:'high',blockedReason:'recovery_exhausted'}});
+        this.event(taskId,'recovery_triggered',`stage=4;reason=recovery_exhausted;banned=${a.type};suggested=final_answer_blocked`);
+        this.event(taskId,'task_blocked','recovery_exhausted');
+        return this.getTaskState(taskId);
+      }
+    }
+
+    if(a.type==='ask_user'&&out.ok){ this.store.updateTask(taskId,{status:'waiting_for_user',pendingUserQuestion:{question:a.params.question,options:a.params.options||[]},recoveryState:recoveryPatch}); this.event(taskId,'user_question',a.params.question); }
     else if(a.type==='final_answer'&&out.ok){ const fa:any={...a.params}; const hasEvidence=Array.isArray(fa.evidenceRefs) && fa.evidenceRefs.every((r:string)=>this.store.getEvidence(taskId).some((e:any)=>e.id===r)); if(fa.blockedReason || hasEvidence){ this.store.updateTask(taskId,{status:fa.blockedReason?'blocked':'completed',finalAnswer:fa}); this.event(taskId,fa.blockedReason?'task_blocked':'task_completed',fa.summary); } else { this.store.updateTask(taskId,{status:'blocked',finalAnswer:{...fa,blockedReason:'missing_evidence'}}); }
     } else if (!out.ok) {
       const recoverable = this.isRecoverableActionFailure(out, a);
-      this.store.updateTask(taskId,{status:recoverable ? 'idle' : 'error',pendingProposalId:null,recoveryHint: recoverable ? `Recover from failure: ${normalizeObs(out.error || out.observationSummary)}` : undefined});
+      this.store.updateTask(taskId,{status:recoverable ? 'idle' : 'error',pendingProposalId:null,recoveryHint: recoverable ? `Recover from failure: ${normalizeObs(out.error || out.observationSummary)}` : undefined,recoveryState:recoveryPatch});
       this.event(taskId,recoverable ? 'action_failed' : 'action_failed',out.observationSummary,proposalId);
-    } else this.store.updateTask(taskId,{status:'idle',pendingProposalId:null});
+    } else this.store.updateTask(taskId,{status:'idle',pendingProposalId:null,recoveryState:recoveryPatch});
     this.event(taskId,out.ok?'action_completed':'action_failed',out.observationSummary,proposalId);
     return this.getTaskState(taskId);
   }
