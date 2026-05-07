@@ -103,6 +103,10 @@ export class AgentController {
   stopTask(taskId:string){ this.store.updateTask(taskId,{status:'stopped'}); return this.getTaskState(taskId); }
   getTaskState(taskId:string){ const task=this.store.getTask(taskId); if(!task) throw new Error('task_not_found'); const actions=this.store.getActions(taskId); return {task,compactState:this.store.getCompactState(taskId),actions,events:this.store.getEvents(taskId),evidence:this.store.getEvidence(taskId),files:this.files.listFilesForTask(taskId),browserStatus:this.browser.getCurrentSnapshot(),pendingProposal:actions.find((a:any)=>a.id===task.pendingProposalId),finalAnswer:task.finalAnswer,errors:actions.filter((a:any)=>a.status==='failed').map((a:any)=>a.error)}; }
   listTasks(){ return this.store.listTasks(); }
+  getBrowserStatus(){ return this.browser.getCurrentSnapshot() ?? null; }
+  openBrowserUrl(url:string){ return this.browser.openUrl(url); }
+  readCurrentPage(){ return this.browser.readSnapshot(); }
 }
+
 const sanitize = (s: string) => normalizeObs(String(s ?? '').replace(/(token|password|credential)=[^\s&]+/ig, '$1=[REDACTED]'));
 export const agentController = new AgentController();

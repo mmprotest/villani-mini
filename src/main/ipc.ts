@@ -26,6 +26,7 @@ export function registerIpc(win: BrowserWindow){
   ipcMain.handle('localAssets:getDiagnostics', ()=>assets.getDiagnostics());
 
   ipcMain.handle('modelBackend:getStatus', ()=>manager.getStatus());
+  ipcMain.handle('modelBackend:getConfig', ()=>modelBackendStore.getConfig());
   ipcMain.handle('modelBackend:getLogs', ()=>manager.getLogs());
   ipcMain.handle('modelBackend:start', async ()=>{ const st=await assets.ensureAssetsReady(); const cfg={...modelBackendStore.getConfig(), modelPath: st.modelPath, llamaServerPath: st.llamaServerPath}; modelBackendStore.saveConfig(cfg); const out=await manager.ensureRunning(cfg); emit(win); return out; });
   ipcMain.handle('modelBackend:stop', async ()=>{ const out=await manager.stop(); emit(win); return out; });
@@ -44,4 +45,8 @@ export function registerIpc(win: BrowserWindow){
   ipcMain.handle('task:step', async (_,taskId)=> taskId ? agentController.stepTask(String(taskId)) : err('invalid_input','taskId required'));
   ipcMain.handle('task:stop', async (_,taskId)=> taskId ? agentController.stopTask(String(taskId)) : err('invalid_input','taskId required'));
   ipcMain.handle('task:attachFile', async (_,taskId,filePath)=>{ if(!taskId) return err('invalid_input','taskId required'); const rec=await ingestFile(String(filePath)); fileStore.saveFileRecord(String(taskId),rec); return rec; });
+  ipcMain.handle('browser:getStatus', ()=>agentController.getBrowserStatus());
+  ipcMain.handle('browser:openUrl', async (_,url:string)=>agentController.openBrowserUrl(String(url||'')));
+  ipcMain.handle('browser:readCurrentPage', ()=>agentController.readCurrentPage());
+
 }
