@@ -4,22 +4,50 @@ import { formatTraceRow, redactSensitive } from './taskDebug';
 type View = 'Home' | 'Activities' | 'Browser Control' | 'Commands' | 'History' | 'Settings';
 type Task = { id: string; status: string; createdAt?: string; finalAnswer?: { blockedReason?: string; summary?: string }; updatedAt?: string; userGoal?: string };
 type TaskState = { task: Task; actions?: Array<{ type: string; status: string; createdAt?: string; observationSummary?: string; error?: string }>; events?: Array<{ summary: string; at: string }>; finalAnswer?: any; errors?: string[] };
-type ChatMessage = {
-  id: string;
-  type: 'user' | 'assistant' | 'system_status' | 'task_progress' | 'approval_request' | 'user_question' | 'error';
-  text: string;
-  taskId?: string;
-  options?: string[];
-  proposalId?: string;
+
+type TaskEvent = Record<string, any>;
+type TraceRow = {
+  timestamp: string;
+  eventType: string;
+  actionName: string;
+  targetSummary: string;
+  resultSummary: string;
+  riskStatus: string;
 };
 
-type ProposalDetails = {
-  id?: string;
-  type?: string;
-  title?: string;
-  reason?: string;
-  params?: unknown;
+const summarizeEvent = (event: TaskEvent): TraceRow => {
+  const at = event?.at || event?.timestamp || event?.createdAt || event?.time;
+  const actionName = event?.actionName || event?.action?.name || event?.proposal?.actionName || event?.payload?.actionName;
+  const target = event?.target || event?.payload?.target || event?.action?.target || event?.observation?.target;
+  const result = event?.result || event?.summary || event?.payload?.summary || event?.error || event?.message || event?.finalAnswer?.summary || event?.finalAnswer?.blockedReason;
+  const risk = event?.risk || event?.approvalStatus || event?.status || event?.proposal?.risk || event?.payload?.risk;
+  return formatTraceRow({
+    at: typeof at === 'string' ? at : undefined,
+    type: String(event?.type || event?.eventType || 'event'),
+    actionName: actionName ? String(actionName) : undefined,
+    target: target ? JSON.stringify(target) : undefined,
+    result: result ? String(result) : undefined,
+    risk: risk ? String(risk) : undefined
+  });
 };
+
+const summarizeForClipboard = (taskId: string, events: TaskEvent[]) => {
+  const recent = events.slice(-50);
+  const finalEvent = [...recent].reverse().find((e) => e?.finalAnswer || ['completed', 'blocked', 'error', 'stopped'].includes(String(e?.status || '')));
+  const actions = recent.map((e) => e?.actionName || e?.action?.name || e?.proposal?.actionName).filter(Boolean).slice(-8);
+  const failures = recent.filter((e) => e?.error || String(e?.status || '').toLowerCase() === 'error').map((e) => redactSensitive(String(e?.error || e?.message || e?.summary || 'error'))).slice(-5);
+  const approvals = recent.filter((e) => String(e?.type || '').toLowerCase().includes('approval') || e?.proposalId).map((e) => `${e?.type || 'approval'}:${e?.approvalStatus || e?.status || 'pending'}`);
+  const finalAnswer = finalEvent?.finalAnswer?.summary || finalEvent?.finalAnswer?.blockedReason || finalEvent?.blockedReason;
+  return redactSensitive([
+    `task: ${taskId}`,
+    `final_status: ${finalEvent?.status || 'unknown'}`,
+    `recent_actions: ${actions.length ? actions.join(', ') : 'none'}`,
+    `failures: ${failures.length ? failures.join(' | ') : 'none'}`,
+    `approvals: ${approvals.length ? approvals.join(' | ') : 'none'}`,
+    `final_answer_or_block: ${finalAnswer ? String(finalAnswer) : 'n/a'}`
+  ].join('\n'));
+};
+
 const navItems: View[] = ['Home', 'Activities', 'Browser Control', 'Commands', 'History', 'Settings'];
 
 const actionCatalog = {
@@ -73,7 +101,7 @@ export default function HomeView() {
   const [view, setView] = useState<View>('Home');
   const [advanced, setAdvanced] = useState(false);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
-  const [setupRetryError, setSetupRetryError] = useState('');
+  const [taskEvents, setTaskEvents] = useState<Record<string, TaskEvent[]>>({});
 
   const loadTasks = async () => { setTaskError(''); try { setTasks(await window.villani.task.list()); } catch (e: any) { setTaskError(String(e?.message || e)); } };
   const loadBrowser = async () => { try { setBrowserInfo(await window.villani.browser.getStatus()); } catch (e: any) { setBrowserError(String(e?.message || e)); } };
@@ -89,7 +117,14 @@ export default function HomeView() {
     const off1 = window.villani.backend?.onUpdated?.(setBackend);
     const off2 = window.villani.assets?.onUpdated?.(setAssets);
     const off3 = window.villani.chat?.onUpdated?.(setMessages);
-    return () => { off1?.(); off2?.(); off3?.(); };
+    const off4 = window.villani.task?.onEvent?.((event: TaskEvent) => {
+      const taskId = String(event?.taskId || event?.id || event?.task?.id || 'unknown');
+      setTaskEvents((prev) => {
+        const next = [...(prev[taskId] || []), event].slice(-50);
+        return { ...prev, [taskId]: next };
+      });
+    });
+    return () => { off1?.(); off2?.(); off3?.(); off4?.(); };
   }, []);
 
   const ready = ['running', 'attached'].includes(backend?.status) && assets?.state === 'ready';
@@ -234,13 +269,13 @@ export default function HomeView() {
         <div className='panel'>{messages.length === 0 && ready ? <p>Villani Mini is ready. Ask a question, or ask me to do something.</p> : messages.slice(-8).map(renderMessage)}{responseError && <p>{responseError}</p>}</div>
       </>}
 
-      {view === 'Activities' && <div className='panel'><h2>Activities</h2>{taskError && <p>{taskError}</p>}<button onClick={() => void loadTasks()}>Refresh tasks</button>{tasks.filter(t => ['running','idle','waiting_for_approval','waiting_for_user'].includes(t.status)).map(t => <div key={t.id} className='msg'><b>{t.userGoal || t.id}</b><div className='subtle'>{t.status} · {t.createdAt}</div><button onClick={() => void openTask(t.id)}>Open trace</button></div>)}{selectedTask && <pre>{JSON.stringify({status:selectedTask.task.status,final:selectedTask.finalAnswer,lastAction:selectedTask.actions?.slice(-1)[0],events:selectedTask.events?.slice(-5)},null,2)}</pre>}</div>}
+      {view === 'Activities' && <div className='panel'><h2>Activities</h2>{taskError && <p>{taskError}</p>}<button onClick={() => void loadTasks()}>Refresh tasks</button>{tasks.filter(t => ['running','idle','waiting_for_approval','waiting_for_user'].includes(t.status)).map(t => { const events = taskEvents[t.id] || []; const open = expandedTask === t.id; return <div key={t.id} className='msg'><b>{t.userGoal || t.id}</b><div className='subtle'>{t.status} · {t.createdAt}</div><div className='row-actions'><button onClick={() => setExpandedTask(open ? null : t.id)}>{open ? 'Hide trace' : 'Show trace'}</button><button onClick={() => void navigator.clipboard?.writeText(summarizeForClipboard(t.id, events))}>Copy Debug Summary</button><button onClick={() => void openTask(t.id)}>Open trace</button></div>{open && <div className='trace-table'>{events.slice(-50).reverse().map((ev, idx) => { const row = summarizeEvent(ev); return <div key={`${t.id}-${idx}`} className='trace-row'><span>{row.timestamp}</span><span>{row.eventType}</span><span>{row.actionName}</span><span>{row.targetSummary}</span><span>{row.resultSummary}</span><span>{row.riskStatus}</span></div>; })}</div>}</div>; })}{selectedTask && <pre>{JSON.stringify({status:selectedTask.task.status,final:selectedTask.finalAnswer,lastAction:selectedTask.actions?.slice(-1)[0],events:selectedTask.events?.slice(-5)},null,2)}</pre>}</div>}
 
       {view === 'Browser Control' && <div className='panel'><h2>Browser Control</h2>{browserError && <p>{browserError}</p>}<p>Status: {browserInfo ? 'available' : 'no snapshot yet'}</p><p>URL: {browserInfo?.url || 'n/a'}</p><p>Title: {browserInfo?.title || 'n/a'}</p><p>Snapshot: {(browserInfo?.clickableCandidates || []).length} candidates · {(browserInfo?.formFields || []).length} fields · {browserInfo?.timestamp || browserInfo?.capturedAt || 'n/a'}</p><div className='row-actions'><input value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder='https://example.com' /><button disabled={browserBusy || !urlInput.trim()} onClick={async()=>{ setBrowserBusy(true); setBrowserError(''); try { setBrowserInfo(await window.villani.browser.openUrl(urlInput.trim())); } catch (e:any){ setBrowserError(String(e?.message||e)); } finally { setBrowserBusy(false); } }}>Open URL</button><button disabled={browserBusy} onClick={async()=>{ setBrowserBusy(true); setBrowserError(''); try { setBrowserInfo(await window.villani.browser.readCurrentPage()); } catch (e:any){ setBrowserError(String(e?.message||e)); } finally { setBrowserBusy(false); } }}>Read current page</button></div></div>}
 
       {view === 'Commands' && <div className='panel'><h2>Commands</h2>{Object.entries(actionCatalog).map(([k, vals]) => <div key={k}><h3>{k}</h3>{vals.length===0?<p className='subtle'>No actions available in this build.</p>:vals.map((v)=><div className='msg' key={v.name}><b>{v.name}</b> · default: {v.approval}<div className='subtle'>{v.desc}</div></div>)}</div>)}</div>}
 
-      {view === 'History' && <div className='panel'><h2>History</h2>{tasks.filter(t => ['completed','blocked','error','stopped'].includes(t.status)).map((t)=><div key={t.id} className='msg'><b>{t.userGoal || t.id}</b><div className='subtle'>{t.status}</div><button onClick={() => void openTask(t.id)}>View final/debug</button></div>)}{taskLoading && <p>Loading...</p>}{selectedTask && <pre>{JSON.stringify({finalAnswer:selectedTask.finalAnswer,blockReason:selectedTask.finalAnswer?.blockedReason,debugSummary:selectedTask.events?.slice(-10),errors:selectedTask.errors},null,2)}</pre>}</div>}
+      {view === 'History' && <div className='panel'><h2>History</h2>{tasks.filter(t => ['completed','blocked','error','stopped'].includes(t.status)).map((t)=>{ const events = taskEvents[t.id] || []; const open = expandedTask === t.id; return <div key={t.id} className='msg'><b>{t.userGoal || t.id}</b><div className='subtle'>{t.status}</div><div className='row-actions'><button onClick={() => setExpandedTask(open ? null : t.id)}>{open ? 'Hide trace' : 'Show trace'}</button><button onClick={() => void navigator.clipboard?.writeText(summarizeForClipboard(t.id, events))}>Copy Debug Summary</button><button onClick={() => void openTask(t.id)}>View final/debug</button></div>{open && <div className='trace-table'>{events.slice(-50).reverse().map((ev, idx) => { const row = summarizeEvent(ev); return <div key={`${t.id}-h-${idx}`} className='trace-row'><span>{row.timestamp}</span><span>{row.eventType}</span><span>{row.actionName}</span><span>{row.targetSummary}</span><span>{row.resultSummary}</span><span>{row.riskStatus}</span></div>; })}</div>}</div>; })}{taskLoading && <p>Loading...</p>}{selectedTask && <pre>{JSON.stringify({finalAnswer:selectedTask.finalAnswer,blockReason:selectedTask.finalAnswer?.blockedReason,debugSummary:selectedTask.events?.slice(-10),errors:selectedTask.errors},null,2)}</pre>}</div>}
 
       {view === 'Settings' && <div className='panel'><h2>Settings</h2><p>Base URL: {backend?.endpointUrl || cfg?.endpointUrl || 'n/a'}</p><p>Model: {cfg?.modelName || 'local-model'}</p><p>Mode: {cfg?.mode || 'n/a'}</p><p>Health: {backend?.status || 'unknown'}</p><p>Assets: {assets?.state || 'unknown'}</p><div className='row-actions'><button onClick={() => void retrySetup('assets')}>Retry assets</button><button onClick={() => void retrySetup('backend')}>Retry backend</button><button onClick={async () => { await retrySetup('all'); }}>Retry full setup</button></div>{setupRetryError && <p className='subtle'>{setupRetryError}</p>}<h3>Manual backend config</h3><div className='row-actions'><input value={cfgEdit.endpointUrl} onChange={(e)=>setCfgEdit({...cfgEdit,endpointUrl:e.target.value})} placeholder='endpoint url' /><input value={cfgEdit.modelName} onChange={(e)=>setCfgEdit({...cfgEdit,modelName:e.target.value})} placeholder='model name' /><select value={cfgEdit.mode} onChange={(e)=>setCfgEdit({...cfgEdit,mode:e.target.value})}><option value='bundled_llama_server'>bundled_llama_server</option><option value='external_openai_compatible'>external_openai_compatible</option></select><button onClick={async()=>{ await window.villani.config.updateBackendConfig(cfgEdit); await loadConfig(); }}>Save config</button></div></div>}
     </section>
