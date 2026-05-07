@@ -4,8 +4,11 @@ contextBridge.exposeInMainWorld('villani', {
   getModelBackendLogs: ()=>ipcRenderer.invoke('modelBackend:getLogs'),
   startModelBackend: ()=>ipcRenderer.invoke('modelBackend:start'),
   restartModelBackend: ()=>ipcRenderer.invoke('modelBackend:restart'),
-  selectModelFile: ()=>ipcRenderer.invoke('modelBackend:selectModelFile'),
-  selectServerBinary: ()=>ipcRenderer.invoke('modelBackend:selectServerBinary'),
+  localAssetsGetStatus: ()=>ipcRenderer.invoke('localAssets:getStatus'),
+  localAssetsEnsureReady: ()=>ipcRenderer.invoke('localAssets:ensureReady'),
+  localAssetsRetry: ()=>ipcRenderer.invoke('localAssets:retry'),
+  localAssetsSelectModel: ()=>ipcRenderer.invoke('localAssets:selectModelFile'),
+  localAssetsSelectServer: ()=>ipcRenderer.invoke('localAssets:selectServerBinary'),
   listTasks: ()=>ipcRenderer.invoke('task:list'),
   getTaskState: (taskId:string)=>ipcRenderer.invoke('task:getState', taskId),
   runTask: (taskId:string)=>ipcRenderer.invoke('task:run', taskId),
@@ -16,6 +19,7 @@ contextBridge.exposeInMainWorld('villani', {
   approveChatAction: (taskId:string, proposalId:string)=>ipcRenderer.invoke('chat:approve', taskId, proposalId),
   rejectChatAction: (taskId:string, proposalId:string, reason?:string)=>ipcRenderer.invoke('chat:reject', taskId, proposalId, reason),
   answerChatQuestion: (taskId:string, answer:string)=>ipcRenderer.invoke('chat:answer', taskId, answer),
-  onBackendStatusUpdated: (cb:(s:any)=>void)=>ipcRenderer.on('modelBackend:statusUpdated', (_e,s)=>cb(s)),
-  onChatUpdated: (cb:(m:any[])=>void)=>ipcRenderer.on('chat:updated', (_e,m)=>cb(m))
+  onBackendStatusUpdated: (cb:(s:any)=>void)=>{ const l=(_e:any,s:any)=>cb(s); ipcRenderer.on('modelBackend:statusUpdated', l); return ()=>ipcRenderer.removeListener('modelBackend:statusUpdated', l); },
+  onChatUpdated: (cb:(m:any[])=>void)=>{ const l=(_e:any,m:any[])=>cb(m); ipcRenderer.on('chat:updated', l); return ()=>ipcRenderer.removeListener('chat:updated', l); },
+  onLocalAssetsUpdated: (cb:(s:any)=>void)=>{ const l=(_e:any,s:any)=>cb(s); ipcRenderer.on('localAssets:statusUpdated', l); return ()=>ipcRenderer.removeListener('localAssets:statusUpdated', l); }
 });

@@ -27,6 +27,9 @@ export type ModelBackendState = {
   lastError?: string;
   missingBinary: boolean;
   missingModel: boolean;
+  modelPath?: string;
+  llamaServerPath?: string;
+  processMode?: 'spawned'|'attached';
 };
 
 export const DEFAULT_LOCAL_MODEL_BACKEND_CONFIG: LocalModelBackendConfig = {
@@ -87,10 +90,12 @@ export class LlamaServerManager {
   async ensureRunning(config: LocalModelBackendConfig){
     const endpointUrl = this.normalizeEndpoint(config.endpointUrl || DEFAULT_LOCAL_MODEL_BACKEND_CONFIG.endpointUrl);
     this.state = { ...this.state, status:'starting', endpointUrl, lastError:undefined, missingBinary:false, missingModel:false };
-    if (await this.checkHealthy(endpointUrl)) { this.attachedExternal = true; this.state.status = 'attached'; return this.getStatus(); }
+    if (await this.checkHealthy(endpointUrl)) { this.attachedExternal = true; this.state.status = 'attached'; this.state.processMode='attached'; return this.getStatus(); }
     if (!config.autoStart || config.mode==='external_openai_compatible') { this.state.status='failed'; this.state.lastError='Endpoint is not healthy and auto-start is disabled'; return this.getStatus(); }
     const binary = this.discoverBinary(config); if(!binary){ this.state.status='not_configured'; this.state.missingBinary=true; this.state.lastError='Missing llama-server binary'; return this.getStatus(); }
     const modelPath = this.discoverModel(config);
+    this.state.modelPath = modelPath;
+    this.state.llamaServerPath = binary;
     if(!modelPath){ this.state.status='not_configured'; this.state.missingModel=true; this.state.lastError='Missing GGUF model file'; return this.getStatus(); }
     const args = ['--model', modelPath, '--host', config.host ?? '127.0.0.1', '--port', String(config.port ?? 34783), '--ctx-size', String(config.ctxSize ?? 8192)];
     if(config.threads) args.push('--threads', String(config.threads));
@@ -98,6 +103,7 @@ export class LlamaServerManager {
     if(config.extraArgs?.length) args.push(...config.extraArgs);
     this.child = spawn(binary, args, { stdio:['ignore','pipe','pipe'] });
     this.attachedExternal = false;
+    this.state.processMode='spawned';
     this.state.pid = this.child.pid;
     this.child.stdout?.on('data',(d)=>this.pushLog(String(d).trim()));
     this.child.stderr?.on('data',(d)=>this.pushLog(String(d).trim()));
