@@ -6,9 +6,7 @@ contextBridge.exposeInMainWorld('villani', {
   approveAction: (actionId:string)=>ipcRenderer.invoke('task:approveAction', actionId),
   rejectAction: (actionId:string)=>ipcRenderer.invoke('task:rejectAction', actionId),
   stopTask: ()=>ipcRenderer.invoke('task:stop'),
-  continueAfterLogin: ()=>ipcRenderer.invoke('task:continueAfterLogin'),
   getCurrentTask: ()=>ipcRenderer.invoke('task:getCurrent'),
-  attachFiles: (paths:string[])=>ipcRenderer.invoke('task:attachFiles', paths),
   onSetupUpdated: (cb:(x:any)=>void)=>ipcRenderer.on('setup:updated', (_,d)=>cb(d)),
   onTaskUpdated: (cb:(x:any)=>void)=>ipcRenderer.on('task:updated', (_,d)=>cb(d))
 });

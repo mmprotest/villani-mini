@@ -19,7 +19,7 @@ export class ModelSetupManager {
     onProgress?.(this.status, 0);
 
     if (!fs.existsSync(this.modelPath)) {
-      this.status = 'downloading_model';
+      this.status = 'downloading';
       onProgress?.(this.status, 0);
       await downloadModel(MODEL_URL, this.modelPath, (p) => {
         this.progress = p;
@@ -27,11 +27,11 @@ export class ModelSetupManager {
       });
     }
 
-    this.status = 'validating_model';
+    this.status = 'verifying';
     onProgress?.(this.status, 1);
     if (fs.statSync(this.modelPath).size <= 0) throw new Error('model invalid');
 
-    this.status = 'starting_runtime';
+    this.status = 'starting';
     onProgress?.(this.status, 1);
     this.llama = new LlamaServerManager(this.modelPath);
     this.llama.start();

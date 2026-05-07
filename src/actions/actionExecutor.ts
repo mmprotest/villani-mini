@@ -27,9 +27,8 @@ export async function executeAction(action: any, browser: ManagedBrowser, setPau
       setPaused(true);
       return { ok: true, result: 'paused_for_user' };
     case 'final_answer': {
-      const answer = params.answer ?? params.summary;
-      if (!answer) return { ok: false, error: 'missing final answer text' };
-      return { ok: true, result: String(answer) };
+      if (!params.summary) return { ok: false, error: 'missing final answer summary' };
+      return { ok: true, result: JSON.stringify(params) }
     }
     case 'create_note': {
       const dir = path.join(os.homedir(), '.villani-mini', 'notes');
