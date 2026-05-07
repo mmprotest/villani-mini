@@ -2,9 +2,9 @@ import { createInitialCompactState, updateCompactStateAfterObservation } from '.
 import { LocalOpenAIModelProvider } from '../model/LocalOpenAIModelProvider';
 import { executeAction, type ActionExecutionResult } from '../actions/actionExecutor';
 import { ManagedBrowser } from '../browser/ManagedBrowser';
-import { actionSchema, type AgentAction } from '../actions/actionSchemas';
+import { actionSchema, PLANNER_ALLOWED_ACTION_TYPES, type AgentAction } from '../actions/actionSchemas';
 import { scoreRisk } from '../actions/riskScoring';
-import { requiresApproval } from '../actions/permissionEngine';
+import { evaluateActionPermission } from '../actions/permissionEngine';
 import { buildActionPrompt, buildContextPacket, buildRepairPrompt } from './contextPacket';
 import { jsonRepair } from '../model/jsonRepair';
 import { TaskStore, taskStore } from '../store/taskStore';

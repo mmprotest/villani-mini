@@ -4,26 +4,82 @@ import { formatTraceRow, redactSensitive } from './taskDebug';
 type View = 'Home' | 'Activities' | 'Browser Control' | 'Commands' | 'History' | 'Settings';
 type Task = { id: string; status: string; createdAt?: string; finalAnswer?: { blockedReason?: string; summary?: string }; updatedAt?: string; userGoal?: string };
 type TaskState = { task: Task; actions?: Array<{ type: string; status: string; createdAt?: string; observationSummary?: string; error?: string }>; events?: Array<{ summary: string; at: string }>; finalAnswer?: any; errors?: string[] };
+
+type TaskEvent = Record<string, any>;
+type TraceRow = {
+  timestamp: string;
+  eventType: string;
+  actionName: string;
+  targetSummary: string;
+  resultSummary: string;
+  riskStatus: string;
+};
+
+const summarizeEvent = (event: TaskEvent): TraceRow => {
+  const at = event?.at || event?.timestamp || event?.createdAt || event?.time;
+  const actionName = event?.actionName || event?.action?.name || event?.proposal?.actionName || event?.payload?.actionName;
+  const target = event?.target || event?.payload?.target || event?.action?.target || event?.observation?.target;
+  const result = event?.result || event?.summary || event?.payload?.summary || event?.error || event?.message || event?.finalAnswer?.summary || event?.finalAnswer?.blockedReason;
+  const risk = event?.risk || event?.approvalStatus || event?.status || event?.proposal?.risk || event?.payload?.risk;
+  return formatTraceRow({
+    at: typeof at === 'string' ? at : undefined,
+    type: String(event?.type || event?.eventType || 'event'),
+    actionName: actionName ? String(actionName) : undefined,
+    target: target ? JSON.stringify(target) : undefined,
+    result: result ? String(result) : undefined,
+    risk: risk ? String(risk) : undefined
+  });
+};
+
+const summarizeForClipboard = (taskId: string, events: TaskEvent[]) => {
+  const recent = events.slice(-50);
+  const finalEvent = [...recent].reverse().find((e) => e?.finalAnswer || ['completed', 'blocked', 'error', 'stopped'].includes(String(e?.status || '')));
+  const actions = recent.map((e) => e?.actionName || e?.action?.name || e?.proposal?.actionName).filter(Boolean).slice(-8);
+  const failures = recent.filter((e) => e?.error || String(e?.status || '').toLowerCase() === 'error').map((e) => redactSensitive(String(e?.error || e?.message || e?.summary || 'error'))).slice(-5);
+  const approvals = recent.filter((e) => String(e?.type || '').toLowerCase().includes('approval') || e?.proposalId).map((e) => `${e?.type || 'approval'}:${e?.approvalStatus || e?.status || 'pending'}`);
+  const finalAnswer = finalEvent?.finalAnswer?.summary || finalEvent?.finalAnswer?.blockedReason || finalEvent?.blockedReason;
+  return redactSensitive([
+    `task: ${taskId}`,
+    `final_status: ${finalEvent?.status || 'unknown'}`,
+    `recent_actions: ${actions.length ? actions.join(', ') : 'none'}`,
+    `failures: ${failures.length ? failures.join(' | ') : 'none'}`,
+    `approvals: ${approvals.length ? approvals.join(' | ') : 'none'}`,
+    `final_answer_or_block: ${finalAnswer ? String(finalAnswer) : 'n/a'}`
+  ].join('\n'));
+};
+
 const navItems: View[] = ['Home', 'Activities', 'Browser Control', 'Commands', 'History', 'Settings'];
 
 const actionCatalog = {
   browser: [
-    { name: 'open_url', approval: true, desc: 'Open a URL in managed browser.' },
-    { name: 'read_current_page', approval: false, desc: 'Capture current page candidates and fields.' },
-    { name: 'click_candidate', approval: true, desc: 'Click an extracted clickable candidate.' },
-    { name: 'fill_field', approval: true, desc: 'Fill an extracted form field.' }
+    { name: 'open_url', approval: 'usually safe', desc: 'Open a URL in the managed browser context.' },
+    { name: 'read_current_page', approval: 'usually safe', desc: 'Read the current managed page to extract candidates and fields.' },
+    { name: 'click_candidate', approval: 'approval for risky target', desc: 'Click a candidate element from the latest managed page snapshot.' },
+    { name: 'fill_field', approval: 'approval for risky target', desc: 'Fill a detected field on the currently managed page.' }
+  ],
+  desktop: [
+    { name: 'observe_desktop', approval: 'usually safe', desc: 'Observe the desktop state so the agent can reason about visible UI.' },
+    { name: 'take_screenshot', approval: 'usually safe', desc: 'Capture a desktop screenshot for grounding and follow-up actions.' },
+    { name: 'open_path', approval: 'approval for risky target', desc: 'Open a local path in the desktop environment.' }
+  ],
+  file: [
+    { name: 'list_directory', approval: 'usually safe', desc: 'List files and folders at a target path.' },
+    { name: 'read_file', approval: 'approval outside safe paths', desc: 'Read a file from disk, with tighter checks beyond safe paths.' },
+    { name: 'write_file', approval: 'always approval', desc: 'Write or overwrite file contents on disk.' }
+  ],
+  shell: [
+    { name: 'run_shell_command', approval: 'always approval', desc: 'Execute a shell command in the local environment.' }
   ],
   task: [
-    { name: 'ask_user', approval: false, desc: 'Ask for user input when needed.' },
-    { name: 'final_answer', approval: false, desc: 'Finish with final answer or blocked reason.' }
-  ],
-  desktop: [], file: [], shell: []
+    { name: 'ask_user', approval: 'usually safe', desc: 'Ask the user a follow-up question when required information is missing.' },
+    { name: 'final_answer', approval: 'usually safe', desc: 'Return the final response or blocked outcome for the task.' }
+  ]
 } as const;
 
 export default function HomeView() {
   const [backend, setBackend] = useState<any>({ status: 'checking' });
   const [assets, setAssets] = useState<any>({ state: 'checking' });
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTask, setSelectedTask] = useState<TaskState | null>(null);
   const [taskLoading, setTaskLoading] = useState(false);
@@ -38,10 +94,14 @@ export default function HomeView() {
   const [sending, setSending] = useState(false);
   const [responseError, setResponseError] = useState('');
   const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
+  const [messageBusy, setMessageBusy] = useState<Record<string, boolean>>({});
+  const [messageErrors, setMessageErrors] = useState<Record<string, string>>({});
+  const [proposalDetailsByMessage, setProposalDetailsByMessage] = useState<Record<string, ProposalDetails>>({});
   const [debugOpen, setDebugOpen] = useState(false);
   const [view, setView] = useState<View>('Home');
   const [advanced, setAdvanced] = useState(false);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
+  const [taskEvents, setTaskEvents] = useState<Record<string, TaskEvent[]>>({});
 
   const loadTasks = async () => { setTaskError(''); try { setTasks(await window.villani.task.list()); } catch (e: any) { setTaskError(String(e?.message || e)); } };
   const loadBrowser = async () => { try { setBrowserInfo(await window.villani.browser.getStatus()); } catch (e: any) { setBrowserError(String(e?.message || e)); } };
@@ -57,7 +117,14 @@ export default function HomeView() {
     const off1 = window.villani.backend?.onUpdated?.(setBackend);
     const off2 = window.villani.assets?.onUpdated?.(setAssets);
     const off3 = window.villani.chat?.onUpdated?.(setMessages);
-    return () => { off1?.(); off2?.(); off3?.(); };
+    const off4 = window.villani.task?.onEvent?.((event: TaskEvent) => {
+      const taskId = String(event?.taskId || event?.id || event?.task?.id || 'unknown');
+      setTaskEvents((prev) => {
+        const next = [...(prev[taskId] || []), event].slice(-50);
+        return { ...prev, [taskId]: next };
+      });
+    });
+    return () => { off1?.(); off2?.(); off3?.(); off4?.(); };
   }, []);
 
   const ready = ['running', 'attached'].includes(backend?.status) && assets?.state === 'ready';
@@ -78,33 +145,106 @@ export default function HomeView() {
 
   const quick = useMemo(() => ['Summarize this page', 'Open Downloads folder', 'Find recent invoices', 'Take a screenshot'], []);
 
-  const respondToApproval = async (message: any, approve: boolean) => {
+  useEffect(() => {
+    const loadProposalDetails = async () => {
+      const approvalMessages = messages.filter((m) => m.type === 'approval_request' && m.taskId && m.proposalId);
+      for (const msg of approvalMessages) {
+        if (proposalDetailsByMessage[msg.id]) continue;
+        try {
+          const state = await window.villani.task.getState(msg.taskId!);
+          const action = (state?.actions || []).find((a: any) => a.id === msg.proposalId) || state?.pendingProposal;
+          if (action) {
+            setProposalDetailsByMessage((prev) => ({ ...prev, [msg.id]: action }));
+          }
+        } catch {}
+      }
+    };
+    void loadProposalDetails();
+  }, [messages, proposalDetailsByMessage]);
+
+  const respondToApproval = async (message: ChatMessage, approve: boolean) => {
     if (!message?.taskId || !message?.proposalId) {
-      setResponseError('Approval request is missing task or proposal id.');
+      setMessageErrors((prev) => ({ ...prev, [message.id]: 'Missing approval metadata (taskId/proposalId).' }));
       return;
     }
+    setMessageBusy((prev) => ({ ...prev, [message.id]: true }));
     try {
       const out = approve
         ? await window.villani.chat.approve(message.taskId, message.proposalId)
         : await window.villani.chat.reject(message.taskId, message.proposalId, 'Rejected by user');
       if (Array.isArray(out)) setMessages(out);
-      setResponseError('');
+      setMessageErrors((prev) => ({ ...prev, [message.id]: '' }));
     } catch (e) {
-      setResponseError(e instanceof Error ? e.message : String(e));
+      setMessageErrors((prev) => ({ ...prev, [message.id]: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      setMessageBusy((prev) => ({ ...prev, [message.id]: false }));
+    }
+  };
+
+  const retrySetup = async (mode: 'assets' | 'backend' | 'all') => {
+    setSetupRetryError('');
+    try {
+      if (mode === 'assets') await window.villani.setup.retryAssets();
+      if (mode === 'backend') await window.villani.setup.retryBackend();
+      if (mode === 'all') await window.villani.setup.retryAll();
+    } catch (e) {
+      setSetupRetryError(e instanceof Error ? e.message : String(e));
     }
   };
 
   const submitUserAnswer = async (message: any) => {
     const answer = (questionAnswers[message.id] || '').trim();
-    if (!message?.taskId || !answer) return;
+    if (!message?.taskId) {
+      setMessageErrors((prev) => ({ ...prev, [message.id]: 'Missing question metadata (taskId).' }));
+      return;
+    }
+    if (!answer) return;
+    setMessageBusy((prev) => ({ ...prev, [message.id]: true }));
     try {
       const out = await window.villani.chat.answer(message.taskId, answer);
       if (Array.isArray(out)) setMessages(out);
       setQuestionAnswers((prev) => ({ ...prev, [message.id]: '' }));
-      setResponseError('');
+      setMessageErrors((prev) => ({ ...prev, [message.id]: '' }));
     } catch (e) {
-      setResponseError(e instanceof Error ? e.message : String(e));
+      setMessageErrors((prev) => ({ ...prev, [message.id]: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      setMessageBusy((prev) => ({ ...prev, [message.id]: false }));
     }
+  };
+
+  const renderMessage = (m: ChatMessage) => {
+    if (m.type === 'approval_request') {
+      const missing = !m.taskId || !m.proposalId;
+      const details = proposalDetailsByMessage[m.id];
+      return <div key={m.id} className='msg card-approval'>
+        <div><b>Approval required</b></div>
+        <div>{details?.title || m.text}</div>
+        <div className='subtle'>Action: {details?.type || 'unknown'} · Task: {m.taskId || 'n/a'}</div>
+        {details?.reason && <div className='subtle'>Risk reason: {details.reason}</div>}
+        {details?.params && <pre>{JSON.stringify(redactSensitive(details.params), null, 2)}</pre>}
+        {missing && <div className='subtle'>Missing approval metadata (taskId/proposalId).</div>}
+        {messageErrors[m.id] && <div className='msg msg-error'>{messageErrors[m.id]}</div>}
+        <div className='row-actions'>
+          <button disabled={missing || !!messageBusy[m.id]} onClick={() => void respondToApproval(m, true)}>Approve</button>
+          <button disabled={missing || !!messageBusy[m.id]} onClick={() => void respondToApproval(m, false)}>Reject</button>
+        </div>
+      </div>;
+    }
+    if (m.type === 'user_question') {
+      const missing = !m.taskId;
+      return <div key={m.id} className='msg card-question'>
+        <div><b>Question from agent</b></div>
+        <div>{m.text}</div>
+        {Array.isArray(m.options) && m.options.length > 0 && <div className='subtle'>Options: {m.options.join(' · ')}</div>}
+        <div className='row-actions'>
+          <input value={questionAnswers[m.id] || ''} onChange={(e) => setQuestionAnswers((prev) => ({ ...prev, [m.id]: e.target.value }))} placeholder='Type your answer' disabled={missing || !!messageBusy[m.id]} />
+          <button disabled={missing || !!messageBusy[m.id] || !(questionAnswers[m.id] || '').trim()} onClick={() => void submitUserAnswer(m)}>Submit</button>
+        </div>
+        {missing && <div className='subtle'>Missing question metadata (taskId).</div>}
+        {messageErrors[m.id] && <div className='msg msg-error'>{messageErrors[m.id]}</div>}
+      </div>;
+    }
+    return <div key={m.id} className={`msg ${m.type || 'assistant'}`}><div>{m.text || ''}</div>{m.taskId && <div className='subtle'>Task: {m.taskId}</div>}</div>;
   };
 
   return <div className='app-shell'>
@@ -120,24 +260,24 @@ export default function HomeView() {
       {view === 'Home' && <>
         <h1 className='hero'>Villani mini<br/><span>Your desktop agent.</span></h1>
         <p className='subtle'>I can see, click, type, and help you get things done.</p>
-        {!ready && <div className='panel'><h3>{setupFailed ? 'Setup failed' : 'Setting up local backend'}</h3><p className='subtle'>{assets?.lastError || 'Preparing local model and llama-server...'}</p>{setupFailed && <div className='row-actions'><button onClick={() => window.villani.assets.retry()}>Retry</button><button className='ghost' onClick={() => setAdvanced((v) => !v)}>Advanced manual setup</button></div>}{setupFailed && advanced && <div className='row-actions'><button onClick={() => window.villani.localAssetsSelectModel?.()}>Select model file</button><button onClick={() => window.villani.localAssetsSelectServer?.()}>Select llama-server binary</button></div>}</div>}
+        {!ready && <div className='panel'><h3>{setupFailed ? 'Setup failed' : 'Setting up local backend'}</h3><p className='subtle'>{assets?.lastError || 'Preparing local model and llama-server...'}</p>{setupFailed && <div className='row-actions'><button onClick={() => void retrySetup(assetFailed ? 'assets' : backendFailed ? 'backend' : 'all')}>Retry</button><button className='ghost' onClick={() => setAdvanced((v) => !v)}>Advanced manual setup</button></div>}{setupFailed && advanced && <div className='row-actions'><button onClick={() => window.villani.localAssetsSelectModel?.()}>Select model file</button><button onClick={() => window.villani.localAssetsSelectServer?.()}>Select llama-server binary</button></div>}{setupRetryError && <p className='subtle'>{setupRetryError}</p>}</div>}
         <form className='command-box' onSubmit={(e) => { e.preventDefault(); void send(text); setText(''); }}>
           <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder='What would you like me to do?' disabled={!ready || sending} />
           <button type='submit' disabled={!ready || sending || !text.trim()}>Send</button>
         </form>
         <div className='quick'>{quick.map((q) => <button key={q} className='quick-btn' onClick={() => void send(q)} disabled={!ready || sending}>{q}</button>)}</div>
-        <div className='panel'>{messages.length === 0 && ready ? <p>Villani Mini is ready. Ask a question, or ask me to do something.</p> : messages.slice(-8).map((m) => <div key={m.id} className={`msg ${m.type || m.role}`}>{m.text || m.content}</div>)}</div>
+        <div className='panel'>{messages.length === 0 && ready ? <p>Villani Mini is ready. Ask a question, or ask me to do something.</p> : messages.slice(-8).map(renderMessage)}{responseError && <p>{responseError}</p>}</div>
       </>}
 
-      {view === 'Activities' && <div className='panel'><h2>Activities</h2>{taskError && <p>{taskError}</p>}<button onClick={() => void loadTasks()}>Refresh tasks</button>{tasks.filter(t => ['running','idle','waiting_for_approval','waiting_for_user'].includes(t.status)).map(t => <div key={t.id} className='msg'><b>{t.userGoal || t.id}</b><div className='subtle'>{t.status} · {t.createdAt}</div><button onClick={() => void openTask(t.id)}>Open trace</button></div>)}{selectedTask && <pre>{JSON.stringify({status:selectedTask.task.status,final:selectedTask.finalAnswer,lastAction:selectedTask.actions?.slice(-1)[0],events:selectedTask.events?.slice(-5)},null,2)}</pre>}</div>}
+      {view === 'Activities' && <div className='panel'><h2>Activities</h2>{taskError && <p>{taskError}</p>}<button onClick={() => void loadTasks()}>Refresh tasks</button>{tasks.filter(t => ['running','idle','waiting_for_approval','waiting_for_user'].includes(t.status)).map(t => { const events = taskEvents[t.id] || []; const open = expandedTask === t.id; return <div key={t.id} className='msg'><b>{t.userGoal || t.id}</b><div className='subtle'>{t.status} · {t.createdAt}</div><div className='row-actions'><button onClick={() => setExpandedTask(open ? null : t.id)}>{open ? 'Hide trace' : 'Show trace'}</button><button onClick={() => void navigator.clipboard?.writeText(summarizeForClipboard(t.id, events))}>Copy Debug Summary</button><button onClick={() => void openTask(t.id)}>Open trace</button></div>{open && <div className='trace-table'>{events.slice(-50).reverse().map((ev, idx) => { const row = summarizeEvent(ev); return <div key={`${t.id}-${idx}`} className='trace-row'><span>{row.timestamp}</span><span>{row.eventType}</span><span>{row.actionName}</span><span>{row.targetSummary}</span><span>{row.resultSummary}</span><span>{row.riskStatus}</span></div>; })}</div>}</div>; })}{selectedTask && <pre>{JSON.stringify({status:selectedTask.task.status,final:selectedTask.finalAnswer,lastAction:selectedTask.actions?.slice(-1)[0],events:selectedTask.events?.slice(-5)},null,2)}</pre>}</div>}
 
       {view === 'Browser Control' && <div className='panel'><h2>Browser Control</h2>{browserError && <p>{browserError}</p>}<p>Status: {browserInfo ? 'available' : 'no snapshot yet'}</p><p>URL: {browserInfo?.url || 'n/a'}</p><p>Title: {browserInfo?.title || 'n/a'}</p><p>Snapshot: {(browserInfo?.clickableCandidates || []).length} candidates · {(browserInfo?.formFields || []).length} fields · {browserInfo?.timestamp || browserInfo?.capturedAt || 'n/a'}</p><div className='row-actions'><input value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder='https://example.com' /><button disabled={browserBusy || !urlInput.trim()} onClick={async()=>{ setBrowserBusy(true); setBrowserError(''); try { setBrowserInfo(await window.villani.browser.openUrl(urlInput.trim())); } catch (e:any){ setBrowserError(String(e?.message||e)); } finally { setBrowserBusy(false); } }}>Open URL</button><button disabled={browserBusy} onClick={async()=>{ setBrowserBusy(true); setBrowserError(''); try { setBrowserInfo(await window.villani.browser.readCurrentPage()); } catch (e:any){ setBrowserError(String(e?.message||e)); } finally { setBrowserBusy(false); } }}>Read current page</button></div></div>}
 
-      {view === 'Commands' && <div className='panel'><h2>Commands</h2>{Object.entries(actionCatalog).map(([k, vals]) => <div key={k}><h3>{k}</h3>{vals.length===0?<p className='subtle'>No actions available in this build.</p>:vals.map((v)=><div className='msg' key={v.name}><b>{v.name}</b> · approval: {String(v.approval)}<div className='subtle'>{v.desc}</div></div>)}</div>)}</div>}
+      {view === 'Commands' && <div className='panel'><h2>Commands</h2>{Object.entries(actionCatalog).map(([k, vals]) => <div key={k}><h3>{k}</h3>{vals.length===0?<p className='subtle'>No actions available in this build.</p>:vals.map((v)=><div className='msg' key={v.name}><b>{v.name}</b> · default: {v.approval}<div className='subtle'>{v.desc}</div></div>)}</div>)}</div>}
 
-      {view === 'History' && <div className='panel'><h2>History</h2>{tasks.filter(t => ['completed','blocked','error','stopped'].includes(t.status)).map((t)=><div key={t.id} className='msg'><b>{t.userGoal || t.id}</b><div className='subtle'>{t.status}</div><button onClick={() => void openTask(t.id)}>View final/debug</button></div>)}{taskLoading && <p>Loading...</p>}{selectedTask && <pre>{JSON.stringify({finalAnswer:selectedTask.finalAnswer,blockReason:selectedTask.finalAnswer?.blockedReason,debugSummary:selectedTask.events?.slice(-10),errors:selectedTask.errors},null,2)}</pre>}</div>}
+      {view === 'History' && <div className='panel'><h2>History</h2>{tasks.filter(t => ['completed','blocked','error','stopped'].includes(t.status)).map((t)=>{ const events = taskEvents[t.id] || []; const open = expandedTask === t.id; return <div key={t.id} className='msg'><b>{t.userGoal || t.id}</b><div className='subtle'>{t.status}</div><div className='row-actions'><button onClick={() => setExpandedTask(open ? null : t.id)}>{open ? 'Hide trace' : 'Show trace'}</button><button onClick={() => void navigator.clipboard?.writeText(summarizeForClipboard(t.id, events))}>Copy Debug Summary</button><button onClick={() => void openTask(t.id)}>View final/debug</button></div>{open && <div className='trace-table'>{events.slice(-50).reverse().map((ev, idx) => { const row = summarizeEvent(ev); return <div key={`${t.id}-h-${idx}`} className='trace-row'><span>{row.timestamp}</span><span>{row.eventType}</span><span>{row.actionName}</span><span>{row.targetSummary}</span><span>{row.resultSummary}</span><span>{row.riskStatus}</span></div>; })}</div>}</div>; })}{taskLoading && <p>Loading...</p>}{selectedTask && <pre>{JSON.stringify({finalAnswer:selectedTask.finalAnswer,blockReason:selectedTask.finalAnswer?.blockedReason,debugSummary:selectedTask.events?.slice(-10),errors:selectedTask.errors},null,2)}</pre>}</div>}
 
-      {view === 'Settings' && <div className='panel'><h2>Settings</h2><p>Base URL: {backend?.endpointUrl || cfg?.endpointUrl || 'n/a'}</p><p>Model: {cfg?.modelName || 'local-model'}</p><p>Mode: {cfg?.mode || 'n/a'}</p><p>Health: {backend?.status || 'unknown'}</p><p>Assets: {assets?.state || 'unknown'}</p><div className='row-actions'><button onClick={() => window.villani.assets.retry()}>Retry assets</button><button onClick={() => window.villani.backend.retry()}>Retry backend</button><button onClick={() => { window.villani.assets.retry(); window.villani.backend.retry(); }}>Retry full setup</button></div><h3>Manual backend config</h3><div className='row-actions'><input value={cfgEdit.endpointUrl} onChange={(e)=>setCfgEdit({...cfgEdit,endpointUrl:e.target.value})} placeholder='endpoint url' /><input value={cfgEdit.modelName} onChange={(e)=>setCfgEdit({...cfgEdit,modelName:e.target.value})} placeholder='model name' /><select value={cfgEdit.mode} onChange={(e)=>setCfgEdit({...cfgEdit,mode:e.target.value})}><option value='bundled_llama_server'>bundled_llama_server</option><option value='external_openai_compatible'>external_openai_compatible</option></select><button onClick={async()=>{ await window.villani.config.updateBackendConfig(cfgEdit); await loadConfig(); }}>Save config</button></div></div>}
+      {view === 'Settings' && <div className='panel'><h2>Settings</h2><p>Base URL: {backend?.endpointUrl || cfg?.endpointUrl || 'n/a'}</p><p>Model: {cfg?.modelName || 'local-model'}</p><p>Mode: {cfg?.mode || 'n/a'}</p><p>Health: {backend?.status || 'unknown'}</p><p>Assets: {assets?.state || 'unknown'}</p><div className='row-actions'><button onClick={() => void retrySetup('assets')}>Retry assets</button><button onClick={() => void retrySetup('backend')}>Retry backend</button><button onClick={async () => { await retrySetup('all'); }}>Retry full setup</button></div>{setupRetryError && <p className='subtle'>{setupRetryError}</p>}<h3>Manual backend config</h3><div className='row-actions'><input value={cfgEdit.endpointUrl} onChange={(e)=>setCfgEdit({...cfgEdit,endpointUrl:e.target.value})} placeholder='endpoint url' /><input value={cfgEdit.modelName} onChange={(e)=>setCfgEdit({...cfgEdit,modelName:e.target.value})} placeholder='model name' /><select value={cfgEdit.mode} onChange={(e)=>setCfgEdit({...cfgEdit,mode:e.target.value})}><option value='bundled_llama_server'>bundled_llama_server</option><option value='external_openai_compatible'>external_openai_compatible</option></select><button onClick={async()=>{ await window.villani.config.updateBackendConfig(cfgEdit); await loadConfig(); }}>Save config</button></div></div>}
     </section>
 
     {debugOpen && <div className='drawer'><button onClick={() => setDebugOpen(false)}>Close</button><details><summary>Status</summary><pre>{JSON.stringify({ backend: backend?.status, assets: assets?.state }, null, 2)}</pre></details></div>}

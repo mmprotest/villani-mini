@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { extractJsonBlock, repairJson } from '../model/jsonRepair';
-import { actionSchema } from '../actions/actionSchemas';
+import { actionSchema, PLANNER_ALLOWED_ACTION_TYPES } from '../actions/actionSchemas';
 import { AgentController } from './AgentController';
+import { buildContextPacket } from './contextPacket';
 
 describe('json repair helpers', () => {
   it('extracts prose-wrapped JSON', () => {
