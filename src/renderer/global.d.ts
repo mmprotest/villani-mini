@@ -33,6 +33,7 @@ declare global {
         answerUserQuestion: (taskId: string, answer: string) => Promise<any[]>;
         approveAction: (taskId: string, proposalId: string) => Promise<any[]>;
         rejectAction: (taskId: string, proposalId: string, reason?: string) => Promise<any[]>;
+        onEvent: (cb: (event: any) => void) => Unsubscribe;
       };
       browser: {
         getStatus: () => Promise<any>;

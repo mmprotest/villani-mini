@@ -29,3 +29,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .msg { background: var(--panel-soft); border:1px solid var(--border-soft); border-radius:10px; padding:10px; margin-bottom:8px; }
 .drawer { position: fixed; top:0; right:0; width:400px; height:100%; background: #0a0a0b; border-left:1px solid var(--border); padding:12px; overflow:auto; }
 pre { white-space: pre-wrap; color: var(--text-dim); }
+.row-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.trace-table { margin-top:10px; border:1px solid var(--border-soft); border-radius:8px; overflow:hidden; }
+.trace-row { display:grid; grid-template-columns: 90px 130px 120px 1fr 1fr 110px; gap:8px; font-size:12px; padding:6px 8px; border-top:1px solid var(--border-soft); }
+.trace-row:first-child { border-top:none; }
+.trace-row span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
