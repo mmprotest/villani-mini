@@ -15,5 +15,5 @@ export function registerIpc(win: BrowserWindow){
   ipcMain.handle('task:rejectAction', async (_,taskId,proposalId,reason)=> taskId&&proposalId ? agentController.rejectAction(String(taskId),String(proposalId),reason?String(reason):undefined) : err('invalid_input','taskId/proposalId required'));
   ipcMain.handle('task:stop', async (_,taskId)=> taskId ? agentController.stopTask(String(taskId)) : err('invalid_input','taskId required'));
   ipcMain.handle('task:list', ()=>agentController.listTasks());
-  ipcMain.handle('task:attachFile', async (_,taskId,filePath)=>{ if(!taskId||!filePath) return err('invalid_input','taskId/filePath required'); const rec=await ingestFile(String(filePath)); fileStore.saveFileRecord(String(taskId),rec); return rec; });
+  ipcMain.handle('task:attachFile', async (_,taskId,filePath)=>{ if(!taskId) return err('invalid_input','taskId required'); if(typeof filePath!=='string') return err('unsupported','file picker/path handling not available'); const rec=await ingestFile(String(filePath)); fileStore.saveFileRecord(String(taskId),rec); return rec; });
 }

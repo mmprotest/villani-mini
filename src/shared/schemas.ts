@@ -1,2 +1,2 @@
 import { z } from 'zod';
-export const setupStatusSchema = z.enum(['checking','downloading_model','validating_model','starting_runtime','ready','failed']);
+export const setupStatusSchema = z.enum(['not_started','checking','downloading','verifying','starting','ready','error']);
