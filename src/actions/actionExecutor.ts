@@ -53,14 +53,14 @@ export async function executeAction(action: any, browser: ManagedBrowser, setPau
         if (!params.candidateId) return { ok: false, actionType: action.type, observationSummary: 'Missing candidateId', evidenceRefs: [], error: 'missing candidateId' };
         const expectedSnapshotId = typeof params.expectedSnapshotId === 'string' ? params.expectedSnapshotId : (typeof params.snapshotId === 'string' ? params.snapshotId : undefined);
         const out = await browser.clickCandidate(String(params.candidateId), expectedSnapshotId);
-        if (!out.ok) return { ok: false, actionType: action.type, observationSummary: out.error ?? 'Click failed', evidenceRefs: [], error: out.error };
+        if (!out.ok) { const msg = /Stale snapshot ID/i.test(String(out.error)) ? 'Stale snapshot mismatch. Read current page and retry.' : /Unknown candidate ID/i.test(String(out.error)) ? 'Candidate not found in current snapshot. Read current page and retry.' : (out.error ?? 'Click failed'); return { ok: false, actionType: action.type, observationSummary: msg, evidenceRefs: [], error: msg }; }
         return { ok: true, actionType: action.type, observationSummary: `Clicked ${params.candidateId}; now ${out.snapshot.url} (${out.snapshot.title})`, evidenceRefs: snapRef(out.snapshot), browserSnapshot: out.snapshot, changedPageState: true };
       }
       case 'fill_field': {
         if (!params.fieldId) return { ok: false, actionType: action.type, observationSummary: 'Missing fieldId', evidenceRefs: [], error: 'missing fieldId' };
         const expectedSnapshotId = typeof params.expectedSnapshotId === 'string' ? params.expectedSnapshotId : (typeof params.snapshotId === 'string' ? params.snapshotId : undefined);
         const out = await browser.fillField(String(params.fieldId), String(params.value ?? ''), expectedSnapshotId);
-        if (!out.ok) return { ok: false, actionType: action.type, observationSummary: out.error ?? 'Fill failed', evidenceRefs: [], error: out.error };
+        if (!out.ok) { const msg = /Stale snapshot ID/i.test(String(out.error)) ? 'Stale snapshot mismatch. Read current page and retry.' : /Unknown field ID/i.test(String(out.error)) ? 'Field not found in current snapshot. Read current page and retry.' : (out.error ?? 'Fill failed'); return { ok: false, actionType: action.type, observationSummary: msg, evidenceRefs: [], error: msg }; }
         return { ok: true, actionType: action.type, observationSummary: `Filled ${params.fieldId} with [REDACTED]`, evidenceRefs: snapRef(out.snapshot), browserSnapshot: out.snapshot, changedPageState: true };
       }
       case 'ask_user': {

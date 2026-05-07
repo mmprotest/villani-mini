@@ -1,6 +1,6 @@
 import type { BrowserSnapshot, CompactTaskState } from '../shared/types';
 
-export interface ContextPacketInput { taskId:string; userGoal:string; currentObjective:string; compactState:CompactTaskState; snapshot?:BrowserSnapshot; recentActions?:Array<{type:string;status:string;observation:string}>; failedAttempts?:string[]; fileSummaries?:string[]; recoveryHint?:string; allowedActionTypes:string[]; pendingUserQuestion?:any; pendingApproval?:any; userAnswers?:string[]; stopRules?:string[]; noProgressSummary?: string; repeatedFailureSummary?: string; }
+export interface ContextPacketInput { taskId:string; userGoal:string; currentObjective:string; compactState:CompactTaskState; snapshot?:BrowserSnapshot; recentActions?:Array<{type:string;status:string;observation:string}>; failedAttempts?:string[]; fileSummaries?:string[]; recoveryHint?:string; allowedActionTypes:string[]; pendingUserQuestion?:any; pendingApproval?:any; userAnswers?:string[]; stopRules?:string[]; noProgressSummary?: string; repeatedFailureSummary?: string; discouragedActions?: string[]; bannedNextActions?: string[]; recoveryInstruction?: string; }
 
 export function buildContextPacket(i:ContextPacketInput){
   return JSON.stringify({
@@ -14,4 +14,8 @@ export function buildContextPacket(i:ContextPacketInput){
   });
 }
 
-export function buildActionPrompt(packet:string){ return `Return exactly one JSON action object. No prose.\n${packet}`; }
+export function buildActionPrompt(packet:string){ return `You are an action planner for a small local model runner.\nReturn one action JSON object that matches the protocol and allowed schemas in the packet.\n${packet}`; }
+
+export function buildRepairPrompt(packet:string, validationError:string, invalidOutput:string){
+  return `Your previous action JSON was invalid. Return one corrected JSON action object only.\nValidation error: ${validationError}\nInvalid output:\n${invalidOutput}\nContext packet:\n${packet}`;
+}
