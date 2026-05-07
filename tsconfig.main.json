@@ -20,7 +20,8 @@
     "src/actions/**/*.ts",
     "src/agent/**/*.ts",
     "src/browser/**/*.ts",
-    "src/files/**/*.ts"
+    "src/files/**/*.ts",
+    "src/types/**/*.d.ts"
   ],
   "exclude": ["tests", "dist"]
 }
