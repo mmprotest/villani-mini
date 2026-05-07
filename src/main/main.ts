@@ -52,6 +52,32 @@ function createWindow() {
     },
   });
 
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    console.error('[renderer-load] did-fail-load', {
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame,
+    });
+  });
+
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[renderer-load] render-process-gone', details);
+  });
+
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const tag = '[renderer-console]';
+    if (level >= 2) {
+      console.error(tag, { level, message, line, sourceId });
+      return;
+    }
+    if (level === 1) {
+      console.warn(tag, { level, message, line, sourceId });
+      return;
+    }
+    console.log(tag, { level, message, line, sourceId });
+  });
+
   void loadRenderer(win);
 }
 
