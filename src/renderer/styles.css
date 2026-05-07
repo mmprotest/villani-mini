@@ -27,5 +27,15 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .quick { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px; }
 .quick-btn { text-align:left; }
 .msg { background: var(--panel-soft); border:1px solid var(--border-soft); border-radius:10px; padding:10px; margin-bottom:8px; }
+.msg.task_progress, .msg.system_status { border-color: var(--border); }
+.msg.error, .msg-error { border-color: rgba(255,255,255,0.25); color: #fca5a5; }
+.row-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.row-actions input { flex:1; min-width: 220px; background: var(--panel-elevated); border:1px solid var(--border); border-radius:10px; color:var(--text); padding:8px; }
+.card-approval pre { margin: 8px 0; padding: 8px; border-radius: 8px; background: #09090b; border:1px solid var(--border-soft); }
 .drawer { position: fixed; top:0; right:0; width:400px; height:100%; background: #0a0a0b; border-left:1px solid var(--border); padding:12px; overflow:auto; }
 pre { white-space: pre-wrap; color: var(--text-dim); }
+.row-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.trace-table { margin-top:10px; border:1px solid var(--border-soft); border-radius:8px; overflow:hidden; }
+.trace-row { display:grid; grid-template-columns: 90px 130px 120px 1fr 1fr 110px; gap:8px; font-size:12px; padding:6px 8px; border-top:1px solid var(--border-soft); }
+.trace-row:first-child { border-top:none; }
+.trace-row span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

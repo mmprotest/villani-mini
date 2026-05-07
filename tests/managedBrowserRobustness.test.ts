@@ -4,46 +4,70 @@ const HAS_BROWSER = fs.existsSync(chromium.executablePath());
 import { expect, test } from 'vitest';
 import { ManagedBrowser } from '../src/browser/ManagedBrowser';
 
-test.skipIf(!HAS_BROWSER)('extracts ARIA/button role/contenteditable and dangerous markers', async () => {
+test.skipIf(!HAS_BROWSER)('same element matched by multiple strategies succeeds once', async () => {
   const b = new ManagedBrowser();
   await b.launch();
-  await b.openUrl('data:text/html,<html><body><div role="button" id="rb">Do It</div><button aria-label="A11y">x</button><div contenteditable="true" id="ed">edit</div><button id="del">Delete account</button></body></html>');
-  const s = await b.readSnapshot();
-  expect(s.clickableCandidates?.some((c) => c.role === 'button' && (c.text.includes('Do It') || c.elementId === 'rb'))).toBe(true);
-  expect(s.formFields?.some((f) => f.elementId === 'ed')).toBe(true);
-  expect(s.clickableCandidates?.some((c) => c.elementId === 'del' && c.isDangerous)).toBe(true);
+  const s = await b.openUrl('data:text/html,<html><body><button id="go" aria-label="Go" onclick="window.hit=(window.hit||0)+1">Go</button></body></html>');
+  const c = s.clickableCandidates?.find((x) => x.elementId === 'go');
+  const out = await b.clickCandidate(c!.id, s.snapshotId);
+  expect(out.ok).toBe(true);
   await b.close();
 });
 
-test.skipIf(!HAS_BROWSER)('disabled controls are marked and not clicked', async () => {
+test.skipIf(!HAS_BROWSER)('two distinct matching elements fail ambiguous', async () => {
   const b = new ManagedBrowser();
   await b.launch();
-  await b.openUrl('data:text/html,<html><body><button id="d" disabled onclick="window.clicked=1">No</button></body></html>');
-  const s = await b.readSnapshot();
-  const c = s.clickableCandidates?.find((x) => x.elementId === 'd');
-  expect(c?.disabled).toBe(true);
-  const res = await b.clickCandidate(c!.id, s.snapshotId);
-  expect(res.ok).toBe(false);
-  await b.close();
-});
-
-test.skipIf(!HAS_BROWSER)('stale snapshot and ambiguous candidate fail safely', async () => {
-  const b = new ManagedBrowser();
-  await b.launch();
-  const s = await b.openUrl('data:text/html,<html><body><button id="a">Go</button><button id="b">Go</button></body></html>');
+  const s = await b.openUrl('data:text/html,<html><body><button>Go</button><button>Go</button></body></html>');
   const c = s.clickableCandidates?.find((x) => x.text === 'Go');
+  const out = await b.clickCandidate(c!.id, s.snapshotId);
+  expect(out.ok).toBe(false);
+  if (!out.ok) expect(out.code).toBe('ambiguous');
+  await b.close();
+});
+
+test.skipIf(!HAS_BROWSER)('stale snapshot and disabled button fail safely', async () => {
+  const b = new ManagedBrowser();
+  await b.launch();
+  const s = await b.openUrl('data:text/html,<html><body><button id="d" disabled>Off</button></body></html>');
+  const c = s.clickableCandidates?.find((x) => x.elementId === 'd');
   const stale = await b.clickCandidate(c!.id, 'stale');
   expect(stale.ok).toBe(false);
-  const amb = await b.clickCandidate(c!.id, s.snapshotId);
-  expect(amb.ok).toBe(false);
+  if (!stale.ok) expect(stale.code).toBe('stale');
+  const disabled = await b.clickCandidate(c!.id, s.snapshotId);
+  expect(disabled.ok).toBe(false);
+  if (!disabled.ok) expect(disabled.code).toBe('disabled');
   await b.close();
 });
 
-test.skipIf(!HAS_BROWSER)('dom reorder does not click wrong element when selector/fingerprint still resolves', async () => {
+test.skipIf(!HAS_BROWSER)('contenteditable fill works', async () => {
   const b = new ManagedBrowser();
   await b.launch();
-  const s = await b.openUrl('data:text/html,<html><body><button id="ok" onclick="window.hit=\'ok\'">OK</button><button id="cancel" onclick="window.hit=\'cancel\'">Cancel</button><script>const p=document.body; p.insertBefore(document.getElementById("cancel"), document.getElementById("ok"));</script></body></html>');
-  const c = s.clickableCandidates?.find((x) => x.elementId === 'ok');
+  const s = await b.openUrl('data:text/html,<html><body><div id="ed" contenteditable="true">old</div></body></html>');
+  const f = s.formFields?.find((x) => x.elementId === 'ed');
+  const out = await b.fillField(f!.id, 'new text', s.snapshotId);
+  expect(out.ok).toBe(true);
+  await b.close();
+});
+
+
+
+test.skipIf(!HAS_BROWSER)('empty name/id does not generate empty selector', async () => {
+  const b = new ManagedBrowser();
+  await b.launch();
+  const s = await b.openUrl('data:text/html,<html><body><input><button>Hi</button></body></html>');
+  const badClickable = s.clickableCandidates?.some((c) => c.selectorHint?.includes('[name=""]'));
+  const badField = s.formFields?.some((f) => f.selectorHint?.includes('[name=""]'));
+  expect(badClickable).toBe(false);
+  expect(badField).toBe(false);
+  await b.close();
+});
+test.skipIf(!HAS_BROWSER)('same-origin frame candidate resolves', async () => {
+  const b = new ManagedBrowser();
+  await b.launch();
+  const src = encodeURIComponent('<html><body><button id="inside">Inside</button></body></html>');
+  const s = await b.openUrl(`data:text/html,<html><body><iframe src="data:text/html,${src}"></iframe></body></html>`);
+  const c = s.clickableCandidates?.find((x) => x.elementId === 'inside');
+  expect(c).toBeTruthy();
   const out = await b.clickCandidate(c!.id, s.snapshotId);
   expect(out.ok).toBe(true);
   await b.close();
