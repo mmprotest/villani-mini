@@ -1,0 +1,1 @@
+export function validateIds(type:string, params:any, candidates:string[], fields:string[]){ if(type==='click_candidate'&&!candidates.includes(params.candidateId)) return false; if(type==='fill_field'&&!fields.includes(params.fieldId)) return false; return true; }

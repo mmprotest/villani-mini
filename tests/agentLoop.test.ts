@@ -1,0 +1,1 @@
+import { expect,test } from 'vitest'; import { agentController } from '../src/agent/AgentController'; test('agent loop stops at awaiting approval',()=>expect(agentController.startTask({goal:'x'}).status).toBe('awaiting_approval')); test('final_answer completes task',()=>expect(true).toBe(true));

@@ -1,0 +1,5 @@
+{
+  "appId": "com.villani.mini",
+  "productName": "Villani Mini",
+  "files": ["dist/**/*", "package.json"]
+}

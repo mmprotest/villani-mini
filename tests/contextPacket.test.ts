@@ -1,0 +1,1 @@
+import { test,expect } from 'vitest'; import { buildContextPacket } from '../src/agent/contextPacket'; test('context compaction preserves candidate IDs and URLs',()=>{ const s=buildContextPacket(['click_1 https://a.com']); expect(s).toContain('click_1'); expect(s).toContain('https://a.com');});

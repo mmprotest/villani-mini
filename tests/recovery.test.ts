@@ -1,0 +1,1 @@
+import { test,expect } from 'vitest'; import { recoveryPrompt } from '../src/agent/recovery'; test('recovery prompt is triggered after repeated no-progress state',()=>expect(recoveryPrompt('obj','block')).toContain('Blocker'));

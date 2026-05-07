@@ -1,0 +1,1 @@
+import { test,expect } from 'vitest'; import { detectLoop } from '../src/agent/loopGuard'; test('loop guard detects repeated identical action and observation',()=>expect(detectLoop(['a','a'])).toBe(true));

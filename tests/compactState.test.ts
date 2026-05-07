@@ -1,0 +1,1 @@
+import { test,expect } from 'vitest'; import { createInitialCompactState, updateCompactStateAfterObservation } from '../src/agent/compactState'; test('compact state updates after observations',()=>expect(updateCompactStateAfterObservation(createInitialCompactState('g'),'obs').lastObservationSummary).toBe('obs'));

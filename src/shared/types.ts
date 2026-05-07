@@ -1,0 +1,14 @@
+export type TaskStatus = 'idle'|'planning'|'awaiting_approval'|'running_action'|'paused_for_user'|'completed'|'failed'|'stopped';
+export type SetupStatus = 'checking'|'downloading_model'|'validating_model'|'starting_runtime'|'ready'|'failed';
+export type Risk='low'|'medium'|'high';
+export interface AttachedFile { id:string; path:string; name:string; mimeType:string; size:number; extractedText:string; summary:string; sensitive:boolean; createdAt:string; }
+export interface PlanStep { id:string; title:string; description:string; requiresUserApproval:boolean; status:'pending'|'active'|'completed'|'skipped'; }
+export interface EvidenceItem { id:string; sourceType:'user_text'|'file'|'browser_page'|'browser_snapshot'|'model'|'system'|'action_result'; title:string; excerpt:string; confidence:'low'|'medium'|'high'; createdAt:string; url?:string; fileId?:string; }
+export interface ActionProposal { id:string; type:string; title:string; reason:string; risk:Risk; requiresApproval:boolean; status:'proposed'|'approved'|'rejected'|'executed'|'failed'; params:Record<string,unknown>; createdAt:string; executedAt?:string; result?:string; }
+export interface BrowserSnapshot { url:string; title:string; textExcerpt:string; clickableCandidates:ClickableCandidate[]; formFields:FormFieldCandidate[]; capturedAt:string; snapshotId:string; }
+export interface ClickableCandidate { id:string; role:string; label:string; text:string; href?:string; riskHints:string[]; }
+export interface FormFieldCandidate { id:string; label:string; type:string; sensitive:boolean; name?:string; placeholder?:string; valuePreview?:string; }
+export interface CompactTaskState { userGoal:string; currentObjective:string; activePlanStep:string; knownFacts:string[]; openQuestions:string[]; evidenceRefs:string[]; browserStateSummary:string; fileStateSummary:string; recentActions:string[]; failedAttempts:string[]; approvedConstraints:string[]; lastObservationSummary:string; nextLikelyStep:string; stopCondition:string; }
+export interface ContextItem { sourceId:string; sourceType:string; summary:string; estimatedChars:number; included:boolean; why:string; includedReason?:string; excludedReason?:string; }
+export interface ContextInventory { taskId:string; activeItems:ContextItem[]; excludedItems:ContextItem[]; totalEstimatedChars:number; budgetLimit:number; pressureLevel:'low'|'moderate'|'high'|'overflow_risk'; staleSignals:string[]; pruningEvents:string[]; }
+export interface TaskSession { id:string; userGoal:string; pastedContext:string; attachedFiles:AttachedFile[]; detectedUrls:string[]; status:TaskStatus; understanding:string; planSteps:PlanStep[]; evidenceItems:EvidenceItem[]; actionProposals:ActionProposal[]; activityLog:string[]; browserSnapshot?:BrowserSnapshot; compactState:CompactTaskState; contextInventory:ContextInventory; finalSummary?:string; createdAt:string; updatedAt:string; }

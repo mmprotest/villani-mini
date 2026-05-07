@@ -1,0 +1,1 @@
+export class LocalOpenAIModelProvider { url=process.env.VILLANI_MINI_MODEL_URL ?? 'http://127.0.0.1:34783/v1/chat/completions'; async healthCheck(){ return this.url.includes('127.0.0.1') || process.env.VILLANI_MINI_ALLOW_REMOTE_MODEL==='true'; }}
