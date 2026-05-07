@@ -31,14 +31,14 @@ export async function executeAction(action: any, browser: ManagedBrowser, setPau
         const expectedSnapshotId = typeof params.expectedSnapshotId === 'string' ? params.expectedSnapshotId : (typeof params.snapshotId === 'string' ? params.snapshotId : undefined);
         const out = await browser.clickCandidate(String(params.candidateId), expectedSnapshotId);
         if (!out.ok) return { ok: false, actionType: action.type, observationSummary: out.error ?? 'Click failed', evidenceRefs: [], error: out.error };
-        return { ok: true, actionType: action.type, observationSummary: `Clicked ${params.candidateId}; now ${out.snapshot.url} (${out.snapshot.title})`, evidenceRefs: snapRef(out.snapshot), browserSnapshot: out.snapshot, changedPageState: true };
+        return { ok: true, actionType: action.type, observationSummary: `Clicked ${params.candidateId}; now ${out.snapshot.url} (${out.snapshot.title})${'postActionObservation' in out ? `; ${out.postActionObservation}` : ''}`, evidenceRefs: snapRef(out.snapshot), browserSnapshot: out.snapshot, changedPageState: true };
       }
       case 'fill_field': {
         if (!params.fieldId) return { ok: false, actionType: action.type, observationSummary: 'Missing fieldId', evidenceRefs: [], error: 'missing fieldId' };
         const expectedSnapshotId = typeof params.expectedSnapshotId === 'string' ? params.expectedSnapshotId : (typeof params.snapshotId === 'string' ? params.snapshotId : undefined);
         const out = await browser.fillField(String(params.fieldId), String(params.value ?? ''), expectedSnapshotId);
         if (!out.ok) return { ok: false, actionType: action.type, observationSummary: out.error ?? 'Fill failed', evidenceRefs: [], error: out.error };
-        return { ok: true, actionType: action.type, observationSummary: `Filled ${params.fieldId} with [REDACTED]`, evidenceRefs: snapRef(out.snapshot), browserSnapshot: out.snapshot, changedPageState: true };
+        return { ok: true, actionType: action.type, observationSummary: `Filled ${params.fieldId} with [REDACTED]${'postActionObservation' in out ? `; ${out.postActionObservation}` : ''}`, evidenceRefs: snapRef(out.snapshot), browserSnapshot: out.snapshot, changedPageState: true };
       }
       case 'ask_user': {
         return { ok: true, actionType: action.type, observationSummary: `Question for user: ${String(params.question ?? '')}`.slice(0,240), evidenceRefs: [] };
