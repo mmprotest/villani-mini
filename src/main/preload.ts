@@ -58,6 +58,12 @@ const villani = {
       return () => ipcRenderer.removeListener('localAssets:statusUpdated', listener);
     }
   },
+
+  setup: {
+    retryAssets: () => ipcRenderer.invoke('setup:retryAssets'),
+    retryBackend: () => ipcRenderer.invoke('setup:retryBackend'),
+    retryAll: () => ipcRenderer.invoke('setup:retryAll')
+  },
   localAssetsSelectModel: () => ipcRenderer.invoke('localAssets:selectModelFile'),
   localAssetsSelectServer: () => ipcRenderer.invoke('localAssets:selectServerBinary')
 };
