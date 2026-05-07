@@ -26,3 +26,20 @@ export const actionSchema = z.discriminatedUnion('type',[
 ]);
 
 export type AgentAction = z.infer<typeof actionSchema>;
+export type AgentActionType = AgentAction['type'];
+
+export const PLANNER_ALLOWED_ACTION_TYPES: AgentActionType[] = [
+  'open_url',
+  'read_current_page',
+  'click_candidate',
+  'fill_field',
+  'observe_desktop',
+  'take_screenshot',
+  'open_path',
+  'list_directory',
+  'read_file',
+  'write_file',
+  'run_shell_command',
+  'ask_user',
+  'final_answer'
+];

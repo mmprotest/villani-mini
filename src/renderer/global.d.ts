@@ -22,7 +22,13 @@ declare global {
       assets: {
         getStatus: () => Promise<any>;
         retry: () => Promise<any>;
+        retryOnly: () => Promise<any>;
         onUpdated: (cb: (status: any) => void) => Unsubscribe;
+      };
+      setup: {
+        retryAssets: () => Promise<any>;
+        retryBackend: () => Promise<any>;
+        retryAll: () => Promise<any>;
       };
       task: {
         list: () => Promise<any[]>;

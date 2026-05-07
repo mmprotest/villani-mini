@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { extractJsonBlock, repairJson } from '../model/jsonRepair';
-import { actionSchema } from '../actions/actionSchemas';
+import { actionSchema, PLANNER_ALLOWED_ACTION_TYPES } from '../actions/actionSchemas';
 import { AgentController } from './AgentController';
+import { buildContextPacket } from './contextPacket';
 
 describe('json repair helpers', () => {
   it('extracts prose-wrapped JSON', () => {
@@ -40,5 +41,41 @@ describe('AgentController action repair flow', () => {
     const controller:any = new AgentController(provider, {} as any, store, {} as any);
     const action = await controller.generateActionWithRepair('t1', '{}');
     expect(action.type).toBe('ask_user');
+  });
+});
+
+describe('planner allowed actions', () => {
+  it('context packet includes desktop/file/shell actions', () => {
+    const packet = buildContextPacket({
+      taskId: 't1',
+      userGoal: 'goal',
+      currentObjective: 'objective',
+      compactState: {
+        objectiveStack: [],
+        currentObjective: 'objective',
+        factsLearned: [],
+        decisionsMade: [],
+        failedAttempts: [],
+        completedSteps: [],
+        openQuestions: [],
+        userProvidedAnswers: [],
+        evidenceRefs: [],
+        assumptions: []
+      },
+      allowedActionTypes: PLANNER_ALLOWED_ACTION_TYPES
+    });
+    const parsed = JSON.parse(packet);
+    expect(parsed.allowedActions).toEqual(expect.arrayContaining([
+      'observe_desktop',
+      'take_screenshot',
+      'list_directory',
+      'read_file',
+      'run_shell_command'
+    ]));
+  });
+
+  it('all planner allowed actions are in action schema', () => {
+    const schemaOptions = (actionSchema as any).options.map((opt: any) => opt.shape.type.value);
+    expect(schemaOptions).toEqual(expect.arrayContaining(PLANNER_ALLOWED_ACTION_TYPES));
   });
 });
