@@ -1,1 +1,10 @@
-export function permissionFor(type:string){ if(['open_url','click_candidate','fill_field','pause_for_user_login','create_note'].includes(type)) return 'ask'; if(type==='read_current_page') return 'allow'; if(type==='final_answer'||type==='ask_user') return 'allow'; return 'deny'; }
+import type { Risk } from '../shared/types';
+
+export function permissionFor(type:string){ if(type==='read_current_page'||type==='final_answer'||type==='ask_user') return 'allow'; if(type==='create_note') return 'allow'; return 'ask'; }
+
+export function requiresApproval(type:string, params:Record<string,unknown>, risk:Risk){
+  if(['pause_for_user_login','submit_form','send_message','purchase'].includes(type)) return true;
+  if(type==='open_url' && typeof params.url==='string' && /^https?:\/\//.test(params.url) && /@|\btoken\b|\bverify\b/i.test(params.url)) return true;
+  if(type==='fill_field' && typeof params.fieldId==='string' && /password|ssn|card|cvv|identity/i.test(params.fieldId)) return true;
+  return risk !== 'low' || permissionFor(type)==='ask';
+}

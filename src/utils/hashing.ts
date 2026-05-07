@@ -1,1 +1,2 @@
-export function hashing(..._a:any[]){return _a[0]??'';}
+import { createHash } from 'node:crypto';
+export function hashText(value:string){ return createHash('sha256').update(value).digest('hex').slice(0,16); }
