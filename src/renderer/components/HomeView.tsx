@@ -76,7 +76,7 @@ export default function HomeView() {
   };
   const openTask = async (id: string) => { setTaskLoading(true); setTaskError(''); try { setSelectedTask(await window.villani.task.getState(id)); } catch (e:any) { setTaskError(String(e?.message || e)); } finally { setTaskLoading(false); } };
 
-  const quick = useMemo(() => ['Summarize this page', 'Open Downloads folder', 'Find recent invoices', 'Take a screenshot'], []);
+  const quick = useMemo(() => ['Summarize the managed browser page', 'Find recent invoices', 'Take a screenshot (if supported)'], []);
 
   const respondToApproval = async (message: any, approve: boolean) => {
     if (!message?.taskId || !message?.proposalId) {
@@ -109,7 +109,7 @@ export default function HomeView() {
 
   return <div className='app-shell'>
     <aside className='sidebar'>
-      <div><div className='logo'>Villani Mini</div><div className='subtle'>Desktop Agent</div></div>
+      <div><div className='logo'>Villani Mini</div><div className='subtle'>Managed Browser + Local Backend</div></div>
       <nav>{navItems.map((item) => <button key={item} className={`nav-btn ${view===item?'active':''}`} onClick={() => setView(item)}>{item}</button>)}</nav>
       <div className='status-card'><div>{statusLabel}</div><div className='subtle'>{ready ? 'Local Connection' : setupFailed ? 'Setup failed' : 'Local Model'}</div></div>
     </aside>
@@ -118,20 +118,20 @@ export default function HomeView() {
       <header className='topbar'><div className='status-chip'>{ready ? 'Ready' : setupFailed ? 'Failed' : 'Starting'}</div><button className='ghost' onClick={() => setDebugOpen(true)}>Debug</button></header>
 
       {view === 'Home' && <>
-        <h1 className='hero'>Villani mini<br/><span>Your desktop agent.</span></h1>
-        <p className='subtle'>I can see, click, type, and help you get things done.</p>
+        <h1 className='hero'>Villani mini<br/><span>Managed browser and local task assistant.</span></h1>
+        <p className='subtle'>Use managed browser controls, local model responses, and approved actions for files, commands, or desktop tasks.</p>
         {!ready && <div className='panel'><h3>{setupFailed ? 'Setup failed' : 'Setting up local backend'}</h3><p className='subtle'>{assets?.lastError || 'Preparing local model and llama-server...'}</p>{setupFailed && <div className='row-actions'><button onClick={() => window.villani.assets.retry()}>Retry</button><button className='ghost' onClick={() => setAdvanced((v) => !v)}>Advanced manual setup</button></div>}{setupFailed && advanced && <div className='row-actions'><button onClick={() => window.villani.localAssetsSelectModel?.()}>Select model file</button><button onClick={() => window.villani.localAssetsSelectServer?.()}>Select llama-server binary</button></div>}</div>}
         <form className='command-box' onSubmit={(e) => { e.preventDefault(); void send(text); setText(''); }}>
           <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder='What would you like me to do?' disabled={!ready || sending} />
           <button type='submit' disabled={!ready || sending || !text.trim()}>Send</button>
         </form>
         <div className='quick'>{quick.map((q) => <button key={q} className='quick-btn' onClick={() => void send(q)} disabled={!ready || sending}>{q}</button>)}</div>
-        <div className='panel'>{messages.length === 0 && ready ? <p>Villani Mini is ready. Ask a question, or ask me to do something.</p> : messages.slice(-8).map((m) => <div key={m.id} className={`msg ${m.type || m.role}`}>{m.text || m.content}</div>)}</div>
+        <div className='panel'>{messages.length === 0 && ready ? <p>Villani Mini is ready. Ask for managed browser steps or approved local actions.</p> : messages.slice(-8).map((m) => <div key={m.id} className={`msg ${m.type || m.role}`}>{m.text || m.content}</div>)}</div>
       </>}
 
       {view === 'Activities' && <div className='panel'><h2>Activities</h2>{taskError && <p>{taskError}</p>}<button onClick={() => void loadTasks()}>Refresh tasks</button>{tasks.filter(t => ['running','idle','waiting_for_approval','waiting_for_user'].includes(t.status)).map(t => <div key={t.id} className='msg'><b>{t.userGoal || t.id}</b><div className='subtle'>{t.status} · {t.createdAt}</div><button onClick={() => void openTask(t.id)}>Open trace</button></div>)}{selectedTask && <pre>{JSON.stringify({status:selectedTask.task.status,final:selectedTask.finalAnswer,lastAction:selectedTask.actions?.slice(-1)[0],events:selectedTask.events?.slice(-5)},null,2)}</pre>}</div>}
 
-      {view === 'Browser Control' && <div className='panel'><h2>Browser Control</h2>{browserError && <p>{browserError}</p>}<p>Status: {browserInfo ? 'available' : 'no snapshot yet'}</p><p>URL: {browserInfo?.url || 'n/a'}</p><p>Title: {browserInfo?.title || 'n/a'}</p><p>Snapshot: {(browserInfo?.clickableCandidates || []).length} candidates · {(browserInfo?.formFields || []).length} fields · {browserInfo?.timestamp || browserInfo?.capturedAt || 'n/a'}</p><div className='row-actions'><input value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder='https://example.com' /><button disabled={browserBusy || !urlInput.trim()} onClick={async()=>{ setBrowserBusy(true); setBrowserError(''); try { setBrowserInfo(await window.villani.browser.openUrl(urlInput.trim())); } catch (e:any){ setBrowserError(String(e?.message||e)); } finally { setBrowserBusy(false); } }}>Open URL</button><button disabled={browserBusy} onClick={async()=>{ setBrowserBusy(true); setBrowserError(''); try { setBrowserInfo(await window.villani.browser.readCurrentPage()); } catch (e:any){ setBrowserError(String(e?.message||e)); } finally { setBrowserBusy(false); } }}>Read current page</button></div></div>}
+      {view === 'Browser Control' && <div className='panel'><h2>Browser Control</h2>{browserError && <p>{browserError}</p>}<p>Controls apply to the managed browser session only.</p><p>Status: {browserInfo ? 'available' : 'no snapshot yet'}</p><p>URL: {browserInfo?.url || 'n/a'}</p><p>Title: {browserInfo?.title || 'n/a'}</p><p>Snapshot: {(browserInfo?.clickableCandidates || []).length} candidates · {(browserInfo?.formFields || []).length} fields · {browserInfo?.timestamp || browserInfo?.capturedAt || 'n/a'}</p><div className='row-actions'><input value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder='https://example.com' /><button disabled={browserBusy || !urlInput.trim()} onClick={async()=>{ setBrowserBusy(true); setBrowserError(''); try { setBrowserInfo(await window.villani.browser.openUrl(urlInput.trim())); } catch (e:any){ setBrowserError(String(e?.message||e)); } finally { setBrowserBusy(false); } }}>Open URL</button><button disabled={browserBusy} onClick={async()=>{ setBrowserBusy(true); setBrowserError(''); try { setBrowserInfo(await window.villani.browser.readCurrentPage()); } catch (e:any){ setBrowserError(String(e?.message||e)); } finally { setBrowserBusy(false); } }}>Read managed page</button></div></div>}
 
       {view === 'Commands' && <div className='panel'><h2>Commands</h2>{Object.entries(actionCatalog).map(([k, vals]) => <div key={k}><h3>{k}</h3>{vals.length===0?<p className='subtle'>No actions available in this build.</p>:vals.map((v)=><div className='msg' key={v.name}><b>{v.name}</b> · approval: {String(v.approval)}<div className='subtle'>{v.desc}</div></div>)}</div>)}</div>}
 
