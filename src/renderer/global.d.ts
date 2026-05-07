@@ -1,6 +1,6 @@
 export {};
 
-type Unsubscribe = (() => void) | void;
+type Unsubscribe = () => void;
 
 declare global {
   interface Window {
@@ -16,6 +16,7 @@ declare global {
       backend: {
         getStatus: () => Promise<any>;
         retry: () => Promise<any>;
+        retryStart: () => Promise<any>;
         stop: () => Promise<any>;
         onUpdated: (cb: (status: any) => void) => Unsubscribe;
       };

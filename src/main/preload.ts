@@ -1,6 +1,54 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-const villani = {
+type Unsubscribe = () => void;
+
+type VillaniApi = {
+  chat: {
+    sendMessage: (text: string) => Promise<any[]>;
+    getMessages: () => Promise<any[]>;
+    approve: (taskId: string, proposalId: string) => Promise<any[]>;
+    reject: (taskId: string, proposalId: string, reason?: string) => Promise<any[]>;
+    answer: (taskId: string, answer: string) => Promise<any[]>;
+    onUpdated: (cb: (messages: any[]) => void) => Unsubscribe;
+  };
+  task: {
+    list: () => Promise<any[]>;
+    getState: (taskId: string) => Promise<any>;
+    run: (taskId: string, options?: unknown) => Promise<any>;
+    step: (taskId: string) => Promise<any>;
+    stop: (taskId: string) => Promise<any>;
+    answerUserQuestion: (taskId: string, answer: string) => Promise<any[]>;
+    approveAction: (taskId: string, proposalId: string) => Promise<any[]>;
+    rejectAction: (taskId: string, proposalId: string, reason?: string) => Promise<any[]>;
+    onEvent: (cb: (event: any) => void) => Unsubscribe;
+  };
+  backend: {
+    getStatus: () => Promise<any>;
+    retry: () => Promise<any>;
+    retryStart: () => Promise<any>;
+    stop: () => Promise<any>;
+    onUpdated: (cb: (status: any) => void) => Unsubscribe;
+  };
+  browser: {
+    getStatus: () => Promise<any>;
+    openUrl: (url: string) => Promise<any>;
+    readCurrentPage: () => Promise<any>;
+  };
+  config: {
+    getBackendConfig: () => Promise<any>;
+    updateBackendConfig: (patch: any) => Promise<any>;
+  };
+  assets: {
+    getStatus: () => Promise<any>;
+    retry: () => Promise<any>;
+    retryOnly: () => Promise<any>;
+    onUpdated: (cb: (status: any) => void) => Unsubscribe;
+  };
+  localAssetsSelectModel: () => Promise<any>;
+  localAssetsSelectServer: () => Promise<any>;
+};
+
+const villani: VillaniApi = {
   chat: {
     sendMessage: (text: string) => ipcRenderer.invoke('chat:sendMessage', text),
     getMessages: () => ipcRenderer.invoke('chat:getHistory'),
@@ -23,7 +71,7 @@ const villani = {
     approveAction: (taskId: string, proposalId: string) => ipcRenderer.invoke('chat:approve', taskId, proposalId),
     rejectAction: (taskId: string, proposalId: string, reason?: string) => ipcRenderer.invoke('chat:reject', taskId, proposalId, reason),
     onEvent: (cb: (event: any) => void) => {
-      const listener = (_event: any, payload: any) => cb(payload);
+      const listener = (_event: unknown, payload: any) => cb(payload);
       ipcRenderer.on('task:event', listener);
       return () => ipcRenderer.removeListener('task:event', listener);
     }
