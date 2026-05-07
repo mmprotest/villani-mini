@@ -15,6 +15,7 @@ export interface PermissionEvaluation {
 
 export interface PermissionContext {
   snapshot?: BrowserSnapshot;
+  approvedPaths?: string[];
 }
 
 export function permissionFor(type:string){
@@ -85,6 +86,14 @@ export function evaluateActionPermission(type:string, params:Record<string,unkno
     if (!f) return { requiresApproval: true, riskReasons: ['unknown_field'], targetSummary: `field ${fieldId}`, canExecute: false, failureReason: `Field ${fieldId} not found in current snapshot ${snapshot.snapshotId}. Read current page and retry.` };
     const reasons = fillRiskReasons(f);
     return { requiresApproval: reasons.length > 0 || risk !== 'low', riskReasons: reasons, targetSummary: summarizeField(f), canExecute: true };
+  }
+
+  if (type === 'run_shell_command') {
+    const command = String(params.command ?? '');
+    const risky = /\b(rm|del|erase|format|mkfs|shutdown|reboot|halt|poweroff|chmod|chown|icacls|takeown)\b/i.test(command);
+    const reasons = ['policy_requires_approval'];
+    if (risky) reasons.push('destructive_or_privileged_shell_pattern');
+    return { requiresApproval: true, riskReasons: reasons, targetSummary: 'shell command', canExecute: true };
   }
 
   const requires = (type === 'write_file' || type === 'run_shell_command' || type === 'open_path' || risk !== 'low' || permissionFor(type)==='ask');
