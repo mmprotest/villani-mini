@@ -9,6 +9,8 @@ export default function HomeView() {
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [responseError, setResponseError] = useState('');
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
   const [debugOpen, setDebugOpen] = useState(false);
   const [view, setView] = useState<View>('Home');
   const [advanced, setAdvanced] = useState(false);
@@ -31,11 +33,41 @@ export default function HomeView() {
     const v = instruction.trim();
     if (!v || sending || !ready) return;
     setSending(true);
-    try { const out = await window.villani.chat.sendMessage(v); if (Array.isArray(out)) setMessages(out); }
+    try { const out = await window.villani.chat.sendMessage(v); if (Array.isArray(out)) setMessages(out); setResponseError(''); }
+    catch (e) { setResponseError(e instanceof Error ? e.message : String(e)); }
     finally { setSending(false); }
   };
 
   const quick = useMemo(() => ['Summarize this page', 'Open Downloads folder', 'Find recent invoices', 'Take a screenshot'], []);
+
+  const respondToApproval = async (message: any, approve: boolean) => {
+    if (!message?.taskId || !message?.proposalId) {
+      setResponseError('Approval request is missing task or proposal id.');
+      return;
+    }
+    try {
+      const out = approve
+        ? await window.villani.chat.approve(message.taskId, message.proposalId)
+        : await window.villani.chat.reject(message.taskId, message.proposalId, 'Rejected by user');
+      if (Array.isArray(out)) setMessages(out);
+      setResponseError('');
+    } catch (e) {
+      setResponseError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const submitUserAnswer = async (message: any) => {
+    const answer = (questionAnswers[message.id] || '').trim();
+    if (!message?.taskId || !answer) return;
+    try {
+      const out = await window.villani.chat.answer(message.taskId, answer);
+      if (Array.isArray(out)) setMessages(out);
+      setQuestionAnswers((prev) => ({ ...prev, [message.id]: '' }));
+      setResponseError('');
+    } catch (e) {
+      setResponseError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return <div className='app-shell'>
     <aside className='sidebar'>
@@ -55,7 +87,7 @@ export default function HomeView() {
           <h3>{setupFailed ? 'Setup failed' : 'Setting up local backend'}</h3>
           <p className='subtle'>{assets?.lastError || 'Preparing local model and llama-server...'}</p>
           {setupFailed && <div className='row-actions'><button onClick={() => window.villani.assets.retry()}>Retry</button><button className='ghost' onClick={() => setAdvanced((v) => !v)}>Advanced manual setup</button></div>}
-          {setupFailed && advanced && <div className='row-actions'><button onClick={() => window.villani.localAssetsSelectModel?.()}>Select model file</button><button onClick={() => window.villani.localAssetsSelectServer?.()}>Select llama-server binary</button></div>}
+          {setupFailed && advanced && <div className='row-actions'><button onClick={() => window.villani.localAssetsSelectModel()}>Select model file</button><button onClick={() => window.villani.localAssetsSelectServer()}>Select llama-server binary</button></div>}
         </div>}
 
         <form className='command-box' onSubmit={(e) => { e.preventDefault(); void send(text); setText(''); }}>
@@ -64,7 +96,31 @@ export default function HomeView() {
         </form>
 
         <div className='quick'>{quick.map((q) => <button key={q} className='quick-btn' onClick={() => void send(q)} disabled={!ready || sending}>{q}</button>)}</div>
-        <div className='panel'>{messages.length === 0 && ready ? <p>Villani Mini is ready. Ask a question, or ask me to do something.</p> : messages.slice(-8).map((m) => <div key={m.id} className={`msg ${m.type || m.role}`}>{m.text || m.content}</div>)}</div>
+        <div className='panel'>
+          {responseError && <div className='msg error'>{responseError}</div>}
+          {messages.length === 0 && ready ? <p>Villani Mini is ready. Ask a question, or ask me to do something.</p> : messages.slice(-8).map((m) => {
+            if (m.type === 'approval_request') {
+              return <div key={m.id} className='msg approval_request'>
+                <div>{m.text || m.content}</div>
+                <div className='row-actions'>
+                  <button onClick={() => void respondToApproval(m, true)} disabled={!m.taskId || !m.proposalId}>Approve</button>
+                  <button className='ghost' onClick={() => void respondToApproval(m, false)} disabled={!m.taskId || !m.proposalId}>Reject</button>
+                </div>
+              </div>;
+            }
+            if (m.type === 'user_question') {
+              return <div key={m.id} className='msg user_question'>
+                <div>{m.text || m.content}</div>
+                {(m.options?.length ?? 0) > 0 && <div className='subtle'>Options: {m.options.join(', ')}</div>}
+                <div className='row-actions'>
+                  <input value={questionAnswers[m.id] || ''} onChange={(e) => setQuestionAnswers((prev) => ({ ...prev, [m.id]: e.target.value }))} placeholder='Type your answer' />
+                  <button onClick={() => void submitUserAnswer(m)} disabled={!m.taskId || !(questionAnswers[m.id] || '').trim()}>Submit</button>
+                </div>
+              </div>;
+            }
+            return <div key={m.id} className={`msg ${m.type || m.role}`}>{m.text || m.content}</div>;
+          })}
+        </div>
         <footer className='subtle'>Local agent · Your data stays on your machine</footer>
       </>}
       {view !== 'Home' && <div className='panel'><h2>{view}</h2><p className='subtle'>Product view for {view}.</p></div>}
