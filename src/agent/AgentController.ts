@@ -2,7 +2,7 @@ import { createInitialCompactState, updateCompactStateAfterObservation } from '.
 import { LocalOpenAIModelProvider } from '../model/LocalOpenAIModelProvider';
 import { executeAction, type ActionExecutionResult } from '../actions/actionExecutor';
 import { ManagedBrowser } from '../browser/ManagedBrowser';
-import { actionSchema, type AgentAction } from '../actions/actionSchemas';
+import { actionSchema, PLANNER_ALLOWED_ACTION_TYPES, type AgentAction } from '../actions/actionSchemas';
 import { scoreRisk } from '../actions/riskScoring';
 import { evaluateActionPermission } from '../actions/permissionEngine';
 import { buildActionPrompt, buildContextPacket, buildRepairPrompt } from './contextPacket';
@@ -101,7 +101,7 @@ export class AgentController {
   async stepTask(taskId:string){ const task:any=this.store.getTask(taskId); if(!task) throw new Error('task_not_found');
     this.event(taskId,'model_call_started','Turn started');
     const compact=this.store.getCompactState(taskId) ?? createInitialCompactState(task.userGoal);
-    const packet=buildContextPacket({taskId,userGoal:task.userGoal,currentObjective:compact.currentObjective,compactState:compact,snapshot:this.browser.getCurrentSnapshot(),recentActions:this.store.getActions(taskId).map((a:any)=>({type:a.type,status:a.status,observation:a.observationSummary||a.error||''})),failedAttempts:compact.failedAttempts,fileSummaries:this.files.listFilesForTask(taskId).map((f:any)=>f.summary).filter(Boolean),allowedActionTypes:['open_url','read_current_page','click_candidate','fill_field','ask_user','final_answer'],recoveryHint:task.recoveryHint,userAnswers:compact.userProvidedAnswers,pendingUserQuestion:task.pendingUserQuestion,pendingApproval:task.pendingProposalId?this.store.getAction(taskId,task.pendingProposalId):null,noProgressSummary: task.lastProgressFingerprint ? `Recent no-progress count: ${task.noProgressTurns ?? 0}` : undefined,repeatedFailureSummary: task.repeatedFailureCount ? `Repeated failures: ${task.repeatedFailureCount}` : undefined});
+    const packet=buildContextPacket({taskId,userGoal:task.userGoal,currentObjective:compact.currentObjective,compactState:compact,snapshot:this.browser.getCurrentSnapshot(),recentActions:this.store.getActions(taskId).map((a:any)=>({type:a.type,status:a.status,observation:a.observationSummary||a.error||''})),failedAttempts:compact.failedAttempts,fileSummaries:this.files.listFilesForTask(taskId).map((f:any)=>f.summary).filter(Boolean),allowedActionTypes:PLANNER_ALLOWED_ACTION_TYPES,recoveryHint:task.recoveryHint,userAnswers:compact.userProvidedAnswers,pendingUserQuestion:task.pendingUserQuestion,pendingApproval:task.pendingProposalId?this.store.getAction(taskId,task.pendingProposalId):null,noProgressSummary: task.lastProgressFingerprint ? `Recent no-progress count: ${task.noProgressTurns ?? 0}` : undefined,repeatedFailureSummary: task.repeatedFailureCount ? `Repeated failures: ${task.repeatedFailureCount}` : undefined});
     this.event(taskId,'model_call_started','Model request started');
     this.configureProvider(taskId);
     const action=await this.generateActionWithRepair(taskId, packet); this.event(taskId,'model_action_proposed',action.type);

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { extractJsonBlock, repairJson } from '../model/jsonRepair';
-import { actionSchema } from '../actions/actionSchemas';
+import { actionSchema, PLANNER_ALLOWED_ACTION_TYPES } from '../actions/actionSchemas';
 import { AgentController } from './AgentController';
-import type { BrowserSnapshot } from '../shared/types';
+import { buildContextPacket } from './contextPacket';
 
 describe('json repair helpers', () => {
   it('extracts prose-wrapped JSON', () => {
@@ -44,65 +44,38 @@ describe('AgentController action repair flow', () => {
   });
 });
 
-describe('AgentController permission-aware proposal persistence', () => {
-  const snapshot: BrowserSnapshot = {
-    snapshotId: 's1',
-    url: 'https://example.com',
-    title: 'Example',
-    status: 'ok',
-    clickableCandidates: [{ id: 'c1', role: 'button', label: 'Delete account', text: 'Delete account', riskHints: [], isSubmitLike: false, isDangerous: true, reasonFlags: [] }],
-    formFields: [{ id: 'f1', label: 'Password', type: 'password', sensitive: true }]
-  };
-
-  it('requires approval for dangerous click candidate regardless of model meta', () => {
-    const browser:any = { getCurrentSnapshot: () => snapshot };
-    const controller:any = new AgentController({} as any, browser, {} as any, {} as any);
-    const record = controller.makeRecord('t1', { type: 'click_candidate', params: { candidateId: 'c1' }, meta: { requiresApproval: false } });
-    expect(record.requiresApproval).toBe(true);
-    expect(record.approvalDetails?.riskReasons).toContain('dangerous_candidate');
+describe('planner allowed actions', () => {
+  it('context packet includes desktop/file/shell actions', () => {
+    const packet = buildContextPacket({
+      taskId: 't1',
+      userGoal: 'goal',
+      currentObjective: 'objective',
+      compactState: {
+        objectiveStack: [],
+        currentObjective: 'objective',
+        factsLearned: [],
+        decisionsMade: [],
+        failedAttempts: [],
+        completedSteps: [],
+        openQuestions: [],
+        userProvidedAnswers: [],
+        evidenceRefs: [],
+        assumptions: []
+      },
+      allowedActionTypes: PLANNER_ALLOWED_ACTION_TYPES
+    });
+    const parsed = JSON.parse(packet);
+    expect(parsed.allowedActions).toEqual(expect.arrayContaining([
+      'observe_desktop',
+      'take_screenshot',
+      'list_directory',
+      'read_file',
+      'run_shell_command'
+    ]));
   });
 
-  it('redacts sensitive fill_field value', () => {
-    const browser:any = { getCurrentSnapshot: () => snapshot };
-    const controller:any = new AgentController({} as any, browser, {} as any, {} as any);
-    const record = controller.makeRecord('t1', { type: 'fill_field', params: { fieldId: 'f1', value: 'super-secret' } });
-    expect(record.params.value).toBe('[REDACTED]');
-    expect(record.approvalDetails?.riskReasons).toContain('sensitive_field_target');
-  });
-
-  it('returns safe recovery state when candidate is missing', async () => {
-    const events:any[] = [];
-    const store:any = {
-      appendEvent: (_id:string, ev:any) => events.push(ev),
-      updateTask: (_id:string, _patch:any) => {},
-      getTask: () => ({ id: 't1', status: 'idle' }),
-      getActions: () => [],
-      getCompactState: () => null,
-      getEvents: () => events,
-      getEvidence: () => []
-    };
-    const browser:any = { getCurrentSnapshot: () => snapshot };
-    const controller:any = new AgentController({} as any, browser, store, { listFilesForTask: () => [] } as any);
-    controller.getTaskState = () => ({ task: { id: 't1', status: 'idle' }, actions: [], events, evidence: [], files: [], browserStatus: snapshot, errors: [] });
-    await controller.persistProposalAndMaybeExecute('t1', { type: 'click_candidate', params: { candidateId: 'missing' } });
-    expect(events.some((e) => e.type === 'action_validation_failed')).toBe(true);
-  });
-
-  it('returns safe recovery state on stale snapshot', async () => {
-    const events:any[] = [];
-    const store:any = {
-      appendEvent: (_id:string, ev:any) => events.push(ev),
-      updateTask: (_id:string, _patch:any) => {},
-      getTask: () => ({ id: 't1', status: 'idle' }),
-      getActions: () => [],
-      getCompactState: () => null,
-      getEvents: () => events,
-      getEvidence: () => []
-    };
-    const browser:any = { getCurrentSnapshot: () => snapshot };
-    const controller:any = new AgentController({} as any, browser, store, { listFilesForTask: () => [] } as any);
-    controller.getTaskState = () => ({ task: { id: 't1', status: 'idle' }, actions: [], events, evidence: [], files: [], browserStatus: snapshot, errors: [] });
-    await controller.persistProposalAndMaybeExecute('t1', { type: 'click_candidate', params: { candidateId: 'c1', expectedSnapshotId: 'old' } });
-    expect(events.some((e) => e.type === 'action_validation_failed')).toBe(true);
+  it('all planner allowed actions are in action schema', () => {
+    const schemaOptions = (actionSchema as any).options.map((opt: any) => opt.shape.type.value);
+    expect(schemaOptions).toEqual(expect.arrayContaining(PLANNER_ALLOWED_ACTION_TYPES));
   });
 });

@@ -1,6 +1,7 @@
 import type { BrowserSnapshot, CompactTaskState } from '../shared/types';
+import type { AgentActionType } from '../actions/actionSchemas';
 
-export interface ContextPacketInput { taskId:string; userGoal:string; currentObjective:string; compactState:CompactTaskState; snapshot?:BrowserSnapshot; recentActions?:Array<{type:string;status:string;observation:string}>; failedAttempts?:string[]; fileSummaries?:string[]; recoveryHint?:string; allowedActionTypes:string[]; pendingUserQuestion?:any; pendingApproval?:any; userAnswers?:string[]; stopRules?:string[]; noProgressSummary?: string; repeatedFailureSummary?: string; discouragedActions?: string[]; bannedNextActions?: string[]; recoveryInstruction?: string; }
+export interface ContextPacketInput { taskId:string; userGoal:string; currentObjective:string; compactState:CompactTaskState; snapshot?:BrowserSnapshot; recentActions?:Array<{type:string;status:string;observation:string}>; failedAttempts?:string[]; fileSummaries?:string[]; recoveryHint?:string; allowedActionTypes:AgentActionType[]; pendingUserQuestion?:any; pendingApproval?:any; userAnswers?:string[]; stopRules?:string[]; noProgressSummary?: string; repeatedFailureSummary?: string; discouragedActions?: string[]; bannedNextActions?: string[]; recoveryInstruction?: string; }
 
 export function buildContextPacket(i:ContextPacketInput){
   return JSON.stringify({
