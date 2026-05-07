@@ -25,7 +25,33 @@ export function permissionFor(type:string){
   return 'ask';
 }
 
-const pickSnapshot = (params: Record<string, unknown>, context: PermissionContext) => context.snapshot;
+const pickSnapshot = (_params: Record<string, unknown>, context: PermissionContext) => context.snapshot;
+
+function summarizeCandidate(c: ClickableCandidate): string {
+  const text = (c.text || c.label || c.ariaLabel || c.id || 'candidate').toString().trim();
+  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+}
+
+function summarizeField(f: FormFieldCandidate): string {
+  const text = (f.label || f.name || f.placeholder || f.id || 'field').toString().trim();
+  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+}
+
+function clickRiskReasons(c: ClickableCandidate): string[] {
+  const haystack = [c.text, c.label, c.ariaLabel, c.role, c.href].filter(Boolean).join(' ');
+  const reasons: string[] = [];
+  if (CLICK_RISK_TOKENS.test(haystack)) reasons.push('sensitive_click_target');
+  if (c.isSubmitLike || /submit/i.test(haystack)) reasons.push('submit_like');
+  if (c.isDangerous) reasons.push('dangerous_candidate');
+  return reasons;
+}
+
+function fillRiskReasons(f: FormFieldCandidate): string[] {
+  const haystack = [f.label, f.name, f.placeholder, f.type].filter(Boolean).join(' ');
+  const reasons: string[] = [];
+  if (FILL_SENSITIVE_TOKENS.test(haystack)) reasons.push('sensitive_field_target');
+  return reasons;
+}
 
 export function evaluateActionPermission(type:string, params:Record<string,unknown>, risk:Risk, context: PermissionContext = {}): PermissionEvaluation {
   if(['pause_for_user_login','submit_form','send_message','purchase'].includes(type)) return { requiresApproval: true, riskReasons: ['action_type_requires_approval'], targetSummary: type, canExecute: true };
@@ -60,8 +86,11 @@ export function evaluateActionPermission(type:string, params:Record<string,unkno
     const reasons = fillRiskReasons(f);
     return { requiresApproval: reasons.length > 0 || risk !== 'low', riskReasons: reasons, targetSummary: summarizeField(f), canExecute: true };
   }
-  if(type==='fill_field' && typeof params.fieldId==='string' && /password|ssn|card|cvv|identity/i.test(params.fieldId)) return true;
-  if (type === 'write_file' || type === 'run_shell_command' || type === 'open_path') return true;
-  if (type === 'run_shell_command' && typeof params.command === 'string' && /(rm\s+-rf|del\s+\/f|format\s+|mkfs|shutdown|reboot)/i.test(params.command)) return true;
-  return risk !== 'low' || permissionFor(type)==='ask';
+
+  const requires = (type === 'write_file' || type === 'run_shell_command' || type === 'open_path' || risk !== 'low' || permissionFor(type)==='ask');
+  return { requiresApproval: requires, riskReasons: requires ? ['policy_requires_approval'] : [], targetSummary: type, canExecute: true };
+}
+
+export function requiresApproval(type:string, params:Record<string,unknown>, risk:Risk, context: PermissionContext = {}): boolean {
+  return evaluateActionPermission(type, params, risk, context).requiresApproval;
 }

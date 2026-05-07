@@ -14,7 +14,14 @@ const villani = {
     }
   },
   task: {
+    list: () => ipcRenderer.invoke('task:list'),
     getState: (taskId: string) => ipcRenderer.invoke('task:getState', taskId),
+    run: (taskId: string, options?: unknown) => ipcRenderer.invoke('task:run', taskId, options),
+    step: (taskId: string) => ipcRenderer.invoke('task:step', taskId),
+    stop: (taskId: string) => ipcRenderer.invoke('task:stop', taskId),
+    answerUserQuestion: (taskId: string, answer: string) => ipcRenderer.invoke('chat:answer', taskId, answer),
+    approveAction: (taskId: string, proposalId: string) => ipcRenderer.invoke('chat:approve', taskId, proposalId),
+    rejectAction: (taskId: string, proposalId: string, reason?: string) => ipcRenderer.invoke('chat:reject', taskId, proposalId, reason),
     onEvent: (cb: (event: any) => void) => {
       const listener = (_event: any, payload: any) => cb(payload);
       ipcRenderer.on('task:event', listener);
@@ -31,11 +38,6 @@ const villani = {
       ipcRenderer.on('modelBackend:statusUpdated', listener);
       return () => ipcRenderer.removeListener('modelBackend:statusUpdated', listener);
     }
-  },
-
-  task: {
-    list: () => ipcRenderer.invoke('task:list'),
-    getState: (taskId: string) => ipcRenderer.invoke('task:getState', taskId)
   },
   browser: {
     getStatus: () => ipcRenderer.invoke('browser:getStatus'),
@@ -56,19 +58,6 @@ const villani = {
       return () => ipcRenderer.removeListener('localAssets:statusUpdated', listener);
     }
   },
-  getModelBackendStatus: () => ipcRenderer.invoke('modelBackend:getStatus'),
-  localAssetsGetStatus: () => ipcRenderer.invoke('localAssets:getStatus'),
-  getChatHistory: () => ipcRenderer.invoke('chat:getHistory'),
-  sendMessage: (text: string) => ipcRenderer.invoke('chat:sendMessage', text),
-  onBackendStatusUpdated: (cb: (status: any) => void) => villani.backend.onUpdated(cb),
-  onLocalAssetsUpdated: (cb: (status: any) => void) => villani.assets.onUpdated(cb),
-  onChatUpdated: (cb: (messages: any[]) => void) => villani.chat.onUpdated(cb),
-  setup: {
-    retryAssets: () => ipcRenderer.invoke('setup:retryAssets'),
-    retryBackend: () => ipcRenderer.invoke('setup:retryBackend'),
-    retryAll: () => ipcRenderer.invoke('setup:retryAll')
-  },
-  localAssetsRetry: () => ipcRenderer.invoke('localAssets:retry'),
   localAssetsSelectModel: () => ipcRenderer.invoke('localAssets:selectModelFile'),
   localAssetsSelectServer: () => ipcRenderer.invoke('localAssets:selectServerBinary')
 };
