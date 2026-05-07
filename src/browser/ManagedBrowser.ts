@@ -1,6 +1,7 @@
 import { chromium, type Browser, type Page } from 'playwright';
 import { extractClickableCandidates, extractFormFields } from './candidateExtraction';
 import type { BrowserSnapshot } from '../shared/types';
+import { createBrowserSnapshot } from './browserSnapshot';
 
 export class ManagedBrowser {
   private browser?: Browser;
@@ -29,7 +30,7 @@ export class ManagedBrowser {
     const formsRaw = await this.page.locator('input,textarea,select').evaluateAll((nodes) =>
       nodes.map((n: any) => ({ label: n.labels?.[0]?.innerText || '', type: n.type || n.tagName.toLowerCase(), name: n.name, placeholder: n.placeholder, value: n.value }))
     );
-    this.snapshot = { snapshotId: `s_${Date.now()}`, capturedAt: new Date().toISOString(), title, url, textExcerpt, clickableCandidates: extractClickableCandidates(clickablesRaw), formFields: extractFormFields(formsRaw) };
+    this.snapshot = createBrowserSnapshot({ status: 'ok', title, url, textExcerpt, clickableCandidates: extractClickableCandidates(clickablesRaw), formFields: extractFormFields(formsRaw) });
     return this.snapshot;
   }
 

@@ -10,6 +10,4 @@ export function registerIpc(win: BrowserWindow){
   ipcMain.handle('task:approveAction', async (_,id)=>{ const ok=await agentController.approve(id); win.webContents.send('task:updated', agentController.getCurrent()); return ok;});
   ipcMain.handle('task:rejectAction', (_,id)=>{ const ok=agentController.reject(id); win.webContents.send('task:updated', agentController.getCurrent()); return ok;});
   ipcMain.handle('task:stop', ()=>agentController.stop());
-  ipcMain.handle('task:continueAfterLogin', ()=>agentController.continueAfterLogin());
-  ipcMain.handle('task:attachFiles', (_,f)=>agentController.attachFiles(f));
 }
