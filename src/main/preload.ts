@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('villani', {
   localAssetsRetry: ()=>ipcRenderer.invoke('localAssets:retry'),
   localAssetsSelectModel: ()=>ipcRenderer.invoke('localAssets:selectModelFile'),
   localAssetsSelectServer: ()=>ipcRenderer.invoke('localAssets:selectServerBinary'),
+  localAssetsGetDiagnostics: ()=>ipcRenderer.invoke('localAssets:getDiagnostics'),
   listTasks: ()=>ipcRenderer.invoke('task:list'),
   getTaskState: (taskId:string)=>ipcRenderer.invoke('task:getState', taskId),
   runTask: (taskId:string)=>ipcRenderer.invoke('task:run', taskId),

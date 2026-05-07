@@ -9,18 +9,17 @@ const rendererUrl = process.env.ELECTRON_RENDERER_URL ?? 'http://127.0.0.1:5173'
 let win: BrowserWindow;
 async function loadRenderer(window: BrowserWindow){ if (isDev) return window.loadURL(rendererUrl); const p=path.join(__dirname, '../renderer/index.html'); if(fs.existsSync(p)) return window.loadFile(p); }
 function createWindow(){ win = new BrowserWindow({ width: 1200, height: 850, webPreferences: { preload: path.join(__dirname, 'preload.js') } }); void loadRenderer(win); }
-
-app.whenReady().then(async () => {
-  createWindow();
-  registerIpc(win);
-  win.webContents.send('localAssets:statusUpdated', getAssetManager().getStatus());
-  win.webContents.send('modelBackend:statusUpdated', getModelBackendManager().getStatus());
+async function bootstrapLocalBackend(window: BrowserWindow){
+  window.webContents.send('localAssets:statusUpdated', getAssetManager().getStatus());
+  window.webContents.send('modelBackend:statusUpdated', getModelBackendManager().getStatus());
   const assets = await getAssetManager().ensureAssetsReady();
-  if (assets.state !== 'ready') return;
+  window.webContents.send('localAssets:statusUpdated', assets);
+  if (assets.state !== 'ready' || !assets.modelPath || !assets.llamaServerPath) return;
   const cfg = { ...modelBackendStore.getConfig(), modelPath: assets.modelPath, llamaServerPath: assets.llamaServerPath };
   modelBackendStore.saveConfig(cfg);
   const status = await getModelBackendManager().ensureRunning(cfg);
-  win.webContents.send('modelBackend:statusUpdated', status);
-});
+  window.webContents.send('modelBackend:statusUpdated', status);
+}
+app.whenReady().then(async () => { createWindow(); registerIpc(win); setTimeout(()=>{ void bootstrapLocalBackend(win); }, 250); });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', async () => { await getModelBackendManager().stop(); });
