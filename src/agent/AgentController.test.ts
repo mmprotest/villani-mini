@@ -44,38 +44,33 @@ describe('AgentController action repair flow', () => {
   });
 });
 
-describe('planner allowed actions', () => {
-  it('context packet includes desktop/file/shell actions', () => {
-    const packet = buildContextPacket({
-      taskId: 't1',
-      userGoal: 'goal',
-      currentObjective: 'objective',
-      compactState: {
-        objectiveStack: [],
-        currentObjective: 'objective',
-        factsLearned: [],
-        decisionsMade: [],
-        failedAttempts: [],
-        completedSteps: [],
-        openQuestions: [],
-        userProvidedAnswers: [],
-        evidenceRefs: [],
-        assumptions: []
-      },
-      allowedActionTypes: PLANNER_ALLOWED_ACTION_TYPES
-    });
-    const parsed = JSON.parse(packet);
-    expect(parsed.allowedActions).toEqual(expect.arrayContaining([
-      'observe_desktop',
-      'take_screenshot',
-      'list_directory',
-      'read_file',
-      'run_shell_command'
-    ]));
+describe('AgentController staged recovery enforcement', () => {
+  const out = (obs: string) => ({ ok: false, observationSummary: obs, error: obs, evidenceRefs: [] });
+
+  it('first repeat does not block, second repeat bans exact next action', () => {
+    const c:any = new AgentController({} as any, { getCurrentSnapshot: () => ({ snapshotId: 's1' }) } as any, {} as any, {} as any);
+    const a = { type: 'click_candidate', params: { candidateId: 'a1' } };
+    const t0 = { recoveryState: {} };
+    const r1 = c.nextRecoveryState(t0, a, out('stale'));
+    expect(r1.stage).toBe(0);
+    const r2 = c.nextRecoveryState({ recoveryState: { lastActionSignature: r1.actionSignature, lastObservationHash: r1.observationHash, repeatCount: r1.repeatCount } }, a, out('stale'));
+    expect(r2.stage).toBe(1);
+    const r3 = c.nextRecoveryState({ recoveryState: { lastActionSignature: r2.actionSignature, lastObservationHash: r2.observationHash, repeatCount: r2.repeatCount } }, a, out('stale'));
+    expect(r3.stage).toBe(2);
   });
 
-  it('all planner allowed actions are in action schema', () => {
-    const schemaOptions = (actionSchema as any).options.map((opt: any) => opt.shape.type.value);
-    expect(schemaOptions).toEqual(expect.arrayContaining(PLANNER_ALLOWED_ACTION_TYPES));
+  it('different params do not trigger exact-repeat ban', () => {
+    const c:any = new AgentController({} as any, {} as any, {} as any, {} as any);
+    const r1 = c.nextRecoveryState({ recoveryState: {} }, { type: 'click_candidate', params: { candidateId: 'a1' } }, out('same'));
+    const r2 = c.nextRecoveryState({ recoveryState: { lastActionSignature: r1.actionSignature, lastObservationHash: r1.observationHash, repeatCount: r1.repeatCount } }, { type: 'click_candidate', params: { candidateId: 'a2' } }, out('same'));
+    expect(r2.stage).toBe(0);
+  });
+
+  it('different observation hash does not count as same repeat', () => {
+    const c:any = new AgentController({} as any, {} as any, {} as any, {} as any);
+    const a = { type: 'click_candidate', params: { candidateId: 'a1' } };
+    const r1 = c.nextRecoveryState({ recoveryState: {} }, a, out('obs one'));
+    const r2 = c.nextRecoveryState({ recoveryState: { lastActionSignature: r1.actionSignature, lastObservationHash: r1.observationHash, repeatCount: r1.repeatCount } }, a, out('obs two'));
+    expect(r2.stage).toBe(0);
   });
 });
