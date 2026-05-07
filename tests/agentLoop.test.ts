@@ -7,33 +7,20 @@ import { TaskStore } from '../src/store/taskStore';
 import { FileStore } from '../src/store/fileStore';
 import { JsonDb } from '../src/store/db';
 
-class FakeProvider { constructor(private payload: string) {} async generateText(){ return this.payload; } }
-class FakeBrowser {
-  snapshot = { snapshotId:'s1',url:'https://local',title:'Local',status:'ok',clickableCandidates:[{id:'c_1',role:'button',label:'Send',text:'Send',riskHints:[],isSubmitLike:true,isDangerous:true,reasonFlags:['submit_like','dangerous']}],formFields:[{id:'f_1',label:'Name',type:'text',sensitive:false}] } as any;
-  async close(){}
-  getCurrentSnapshot(){ return this.snapshot; }
-}
+class SeqProvider { i=0; constructor(private payloads: string[]) {} async generateText(){ return this.payloads[Math.min(this.i++, this.payloads.length-1)]; } }
+class FakeBrowser { snapshot:any = { snapshotId:'s1',url:'https://local',title:'Local',status:'ok',visibleTextSummary:'hello',clickableCandidates:[{id:'c_1',role:'button',label:'Continue',text:'Continue',riskHints:[],isSubmitLike:false,isDangerous:false,reasonFlags:[]}],formFields:[{id:'f_1',label:'Name',type:'text',sensitive:false}] }; async close(){} getCurrentSnapshot(){ return this.snapshot; } async readSnapshot(){ return this.snapshot; } async openUrl(){ return this.snapshot; } async clickCandidate(){ return {ok:true,snapshot:this.snapshot}; } async fillField(){ return {ok:true,snapshot:this.snapshot}; }}
+const dirs:string[] = []; afterEach(()=>{ vi.restoreAllMocks(); for (const d of dirs.splice(0)) fs.rmSync(d,{recursive:true,force:true}); });
+const mk=()=>{ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'villani-test-')); dirs.push(dir); const db = new JsonDb({ baseDir: dir }); return {taskStore:new TaskStore(db), files:new FileStore(db), browser:new FakeBrowser()}; };
 
-const dirs:string[] = [];
-afterEach(()=>{ vi.restoreAllMocks(); for (const d of dirs.splice(0)) fs.rmSync(d,{recursive:true,force:true}); });
-
-test('AgentController create/step/persist/reload and dispose idempotent', async ()=>{
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'villani-test-')); dirs.push(dir);
-  const db = new JsonDb({ baseDir: dir });
-  const taskStore = new TaskStore(db);
-  const files = new FileStore(db);
-  const provider = new FakeProvider(JSON.stringify({ type:'ask_user', params:{question:'Proceed?'}, meta:{title:'Ask',reason:'need input',expectedOutcome:'clarify'} }));
-  const browser = new FakeBrowser();
-  const controller = new AgentController(provider as any, browser as any, taskStore, files);
-  const created:any = await controller.createTask({ goal:'Complete flow' });
-  const stepped:any = await controller.stepTask(created.task.id);
-  expect(stepped.actions[0].taskId).toBe(created.task.id);
-  expect(stepped.actions[0].type).toBe('ask_user');
-  expect(stepped.actions[0].status).toBe('failed');
-  const second = new AgentController(provider as any, browser as any, taskStore, files);
-  const reloaded:any = second.getTaskState(created.task.id);
-  expect(reloaded.actions[0].id).toBeTruthy();
-  await controller.dispose();
-  await controller.dispose();
-  await second.dispose();
+test('runTask stops on waiting_for_user and answer resumes context', async ()=>{
+  const {taskStore,files,browser}=mk();
+  const provider = new SeqProvider([JSON.stringify({type:'ask_user',params:{question:'Proceed?',options:['Yes']}}), JSON.stringify({type:'final_answer',params:{summary:'done',evidenceRefs:['snapshot:s1'],remainingSteps:[],uncertainty:'low'}})]);
+  const c=new AgentController(provider as any,browser as any,taskStore,files); const created:any=await c.createTask({goal:'x'});
+  const run:any=await c.runTask(created.task.id); expect(run.task.status).toBe('waiting_for_user');
+  await c.answerUserQuestion(created.task.id,'Yes'); const next:any=await c.stepTask(created.task.id);
+  expect(next.compactState.userProvidedAnswers.join(' ')).toContain('Yes');
 });
+
+test('runTask completes when final_answer emitted', async ()=>{ const {taskStore,files,browser}=mk(); const provider=new SeqProvider([JSON.stringify({type:'read_current_page',params:{}}),JSON.stringify({type:'final_answer',params:{summary:'ok',evidenceRefs:['snapshot:s1'],remainingSteps:[],uncertainty:'low'}})]); const c=new AgentController(provider as any,browser as any,taskStore,files); const created:any=await c.createTask({goal:'x'}); const run:any=await c.runTask(created.task.id); expect(run.task.status).toBe('completed'); });
+
+test('runTask budget exhausted blocks', async ()=>{ const {taskStore,files,browser}=mk(); const provider=new SeqProvider([JSON.stringify({type:'read_current_page',params:{}})]); const c=new AgentController(provider as any,browser as any,taskStore,files); const created:any=await c.createTask({goal:'x'}); const run:any=await c.runTask(created.task.id,{maxTurns:1}); expect(run.task.status).toBe('blocked'); expect(run.task.finalAnswer.blockedReason).toBe('budget_exhausted'); });

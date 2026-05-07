@@ -1,6 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import os from 'node:os';
 import type { BrowserSnapshot } from '../shared/types';
 import { ManagedBrowser } from '../browser/ManagedBrowser';
 
@@ -43,20 +40,12 @@ export async function executeAction(action: any, browser: ManagedBrowser, setPau
         if (!out.ok) return { ok: false, actionType: action.type, observationSummary: out.error ?? 'Fill failed', evidenceRefs: [], error: out.error };
         return { ok: true, actionType: action.type, observationSummary: `Filled ${params.fieldId} with [REDACTED]`, evidenceRefs: snapRef(out.snapshot), browserSnapshot: out.snapshot, changedPageState: true };
       }
-      case 'pause_for_user_login':
-        setPaused(true);
-        return { ok: true, actionType: action.type, observationSummary: 'Paused for user login', evidenceRefs: [] };
+      case 'ask_user': {
+        return { ok: true, actionType: action.type, observationSummary: `Question for user: ${String(params.question ?? '')}`.slice(0,240), evidenceRefs: [] };
+      }
       case 'final_answer': {
         if (!params.summary) return { ok: false, actionType: action.type, observationSummary: 'Missing final answer summary', evidenceRefs: [], error: 'missing final answer summary' };
         return { ok: true, actionType: action.type, observationSummary: String(params.summary), evidenceRefs: Array.isArray(params.evidenceRefs) ? params.evidenceRefs : [] };
-      }
-      case 'create_note': {
-        const dir = path.join(os.homedir(), '.villani-mini', 'notes');
-        fs.mkdirSync(dir, { recursive: true });
-        const p = path.join(dir, `${Date.now()}-${(params.title ?? 'note').toString().replace(/[^a-z0-9_-]/gi, '_')}.md`);
-        const body = params.title ? `# ${params.title}\n\n${params.content ?? ''}` : String(params.content ?? '');
-        fs.writeFileSync(p, body);
-        return { ok: true, actionType: action.type, observationSummary: `Note created at ${p}`, evidenceRefs: [p] };
       }
       default:
         return { ok: false, actionType: action.type ?? 'unknown', observationSummary: `Unknown action ${action.type}`, evidenceRefs: [], error: `Unknown action ${action.type}` };
