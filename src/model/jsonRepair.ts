@@ -4,12 +4,9 @@ export function extractJsonBlock(text: string): string {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
   if (start >= 0 && end > start) return text.slice(start, end + 1);
-  throw new Error('No JSON found');
+  return text;
 }
-export function repairAndParseJson<T>(text: string): T {
-  const raw = extractJsonBlock(text).replace(/,\s*([}\]])/g, '$1');
-  return JSON.parse(raw) as T;
-}
-export function jsonRepair(text: string) {
-  try { return repairAndParseJson(text); } catch { return { type: 'ask_user' }; }
+
+export function repairJson(text:string){
+  return extractJsonBlock(text).replace(/,\s*([}\]])/g, '$1');
 }
