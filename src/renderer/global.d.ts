@@ -1,6 +1,6 @@
 export {};
 
-type Unsubscribe = (() => void) | void;
+type Unsubscribe = () => void;
 
 declare global {
   interface Window {
@@ -16,12 +16,14 @@ declare global {
       backend: {
         getStatus: () => Promise<any>;
         retry: () => Promise<any>;
+        retryStart: () => Promise<any>;
         stop: () => Promise<any>;
         onUpdated: (cb: (status: any) => void) => Unsubscribe;
       };
       assets: {
         getStatus: () => Promise<any>;
         retry: () => Promise<any>;
+        retryOnly: () => Promise<any>;
         onUpdated: (cb: (status: any) => void) => Unsubscribe;
       };
       task: {
@@ -33,6 +35,7 @@ declare global {
         answerUserQuestion: (taskId: string, answer: string) => Promise<any[]>;
         approveAction: (taskId: string, proposalId: string) => Promise<any[]>;
         rejectAction: (taskId: string, proposalId: string, reason?: string) => Promise<any[]>;
+        onEvent: (cb: (event: any) => void) => Unsubscribe;
       };
       browser: {
         getStatus: () => Promise<any>;
