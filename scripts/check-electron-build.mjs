@@ -33,4 +33,17 @@ if (!fs.existsSync(mainAbsPath)) {
   throw new Error(`Build preflight failed: package.json main points to missing file: ${pkg.main}`);
 }
 
+const rendererIndexPath = path.join(root, 'dist/renderer/index.html');
+const rendererIndexHtml = fs.readFileSync(rendererIndexPath, 'utf8');
+const invalidAbsoluteAssetPaths = ['src="/assets/', "src='/assets/", 'href="/assets/', "href='/assets/"];
+
+for (const invalidPath of invalidAbsoluteAssetPaths) {
+  if (rendererIndexHtml.includes(invalidPath)) {
+    throw new Error(
+      `Build preflight failed: dist/renderer/index.html contains absolute asset path (${invalidPath}). ` +
+        'Set Vite base to a relative path (for example, ./).',
+    );
+  }
+}
+
 console.log('Electron build preflight passed.');
