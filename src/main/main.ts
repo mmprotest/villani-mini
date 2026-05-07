@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getModelBackendManager, registerIpc } from './ipc';
+import { getAssetManager, getModelBackendManager, registerIpc } from './ipc';
 import { modelBackendStore } from '../store/modelBackendStore';
 
 const isDev = process.env.VILLANI_MINI_DEV === '1';
@@ -86,7 +86,10 @@ app.whenReady().then(async () => {
   registerIpc(win);
   const cfg = modelBackendStore.getConfig();
   if (cfg.autoStart) {
-    const status = await getModelBackendManager().ensureRunning(cfg);
+    const assets = await getAssetManager().ensureAssetsReady();
+    const merged = { ...cfg, modelPath: assets.modelPath, llamaServerPath: assets.llamaServerPath };
+    modelBackendStore.saveConfig(merged);
+    const status = await getModelBackendManager().ensureRunning(merged);
     win.webContents.send('modelBackend:statusUpdated', status);
   }
 });
