@@ -73,6 +73,7 @@ export default function HomeView() {
   const [view, setView] = useState<View>('Home');
   const [advanced, setAdvanced] = useState(false);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
+  const [setupRetryError, setSetupRetryError] = useState('');
 
   const loadTasks = async () => { setTaskError(''); try { setTasks(await window.villani.task.list()); } catch (e: any) { setTaskError(String(e?.message || e)); } };
   const loadBrowser = async () => { try { setBrowserInfo(await window.villani.browser.getStatus()); } catch (e: any) { setBrowserError(String(e?.message || e)); } };
@@ -145,7 +146,18 @@ export default function HomeView() {
     }
   };
 
-  const submitUserAnswer = async (message: ChatMessage) => {
+  const retrySetup = async (mode: 'assets' | 'backend' | 'all') => {
+    setSetupRetryError('');
+    try {
+      if (mode === 'assets') await window.villani.setup.retryAssets();
+      if (mode === 'backend') await window.villani.setup.retryBackend();
+      if (mode === 'all') await window.villani.setup.retryAll();
+    } catch (e) {
+      setSetupRetryError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const submitUserAnswer = async (message: any) => {
     const answer = (questionAnswers[message.id] || '').trim();
     if (!message?.taskId) {
       setMessageErrors((prev) => ({ ...prev, [message.id]: 'Missing question metadata (taskId).' }));
@@ -213,7 +225,7 @@ export default function HomeView() {
       {view === 'Home' && <>
         <h1 className='hero'>Villani mini<br/><span>Your desktop agent.</span></h1>
         <p className='subtle'>I can see, click, type, and help you get things done.</p>
-        {!ready && <div className='panel'><h3>{setupFailed ? 'Setup failed' : 'Setting up local backend'}</h3><p className='subtle'>{assets?.lastError || 'Preparing local model and llama-server...'}</p>{setupFailed && <div className='row-actions'><button onClick={() => window.villani.assets.retry()}>Retry</button><button className='ghost' onClick={() => setAdvanced((v) => !v)}>Advanced manual setup</button></div>}{setupFailed && advanced && <div className='row-actions'><button onClick={() => window.villani.localAssetsSelectModel?.()}>Select model file</button><button onClick={() => window.villani.localAssetsSelectServer?.()}>Select llama-server binary</button></div>}</div>}
+        {!ready && <div className='panel'><h3>{setupFailed ? 'Setup failed' : 'Setting up local backend'}</h3><p className='subtle'>{assets?.lastError || 'Preparing local model and llama-server...'}</p>{setupFailed && <div className='row-actions'><button onClick={() => void retrySetup(assetFailed ? 'assets' : backendFailed ? 'backend' : 'all')}>Retry</button><button className='ghost' onClick={() => setAdvanced((v) => !v)}>Advanced manual setup</button></div>}{setupFailed && advanced && <div className='row-actions'><button onClick={() => window.villani.localAssetsSelectModel?.()}>Select model file</button><button onClick={() => window.villani.localAssetsSelectServer?.()}>Select llama-server binary</button></div>}{setupRetryError && <p className='subtle'>{setupRetryError}</p>}</div>}
         <form className='command-box' onSubmit={(e) => { e.preventDefault(); void send(text); setText(''); }}>
           <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder='What would you like me to do?' disabled={!ready || sending} />
           <button type='submit' disabled={!ready || sending || !text.trim()}>Send</button>
@@ -230,7 +242,7 @@ export default function HomeView() {
 
       {view === 'History' && <div className='panel'><h2>History</h2>{tasks.filter(t => ['completed','blocked','error','stopped'].includes(t.status)).map((t)=><div key={t.id} className='msg'><b>{t.userGoal || t.id}</b><div className='subtle'>{t.status}</div><button onClick={() => void openTask(t.id)}>View final/debug</button></div>)}{taskLoading && <p>Loading...</p>}{selectedTask && <pre>{JSON.stringify({finalAnswer:selectedTask.finalAnswer,blockReason:selectedTask.finalAnswer?.blockedReason,debugSummary:selectedTask.events?.slice(-10),errors:selectedTask.errors},null,2)}</pre>}</div>}
 
-      {view === 'Settings' && <div className='panel'><h2>Settings</h2><p>Base URL: {backend?.endpointUrl || cfg?.endpointUrl || 'n/a'}</p><p>Model: {cfg?.modelName || 'local-model'}</p><p>Mode: {cfg?.mode || 'n/a'}</p><p>Health: {backend?.status || 'unknown'}</p><p>Assets: {assets?.state || 'unknown'}</p><div className='row-actions'><button onClick={() => window.villani.assets.retry()}>Retry assets</button><button onClick={() => window.villani.backend.retry()}>Retry backend</button><button onClick={() => { window.villani.assets.retry(); window.villani.backend.retry(); }}>Retry full setup</button></div><h3>Manual backend config</h3><div className='row-actions'><input value={cfgEdit.endpointUrl} onChange={(e)=>setCfgEdit({...cfgEdit,endpointUrl:e.target.value})} placeholder='endpoint url' /><input value={cfgEdit.modelName} onChange={(e)=>setCfgEdit({...cfgEdit,modelName:e.target.value})} placeholder='model name' /><select value={cfgEdit.mode} onChange={(e)=>setCfgEdit({...cfgEdit,mode:e.target.value})}><option value='bundled_llama_server'>bundled_llama_server</option><option value='external_openai_compatible'>external_openai_compatible</option></select><button onClick={async()=>{ await window.villani.config.updateBackendConfig(cfgEdit); await loadConfig(); }}>Save config</button></div></div>}
+      {view === 'Settings' && <div className='panel'><h2>Settings</h2><p>Base URL: {backend?.endpointUrl || cfg?.endpointUrl || 'n/a'}</p><p>Model: {cfg?.modelName || 'local-model'}</p><p>Mode: {cfg?.mode || 'n/a'}</p><p>Health: {backend?.status || 'unknown'}</p><p>Assets: {assets?.state || 'unknown'}</p><div className='row-actions'><button onClick={() => void retrySetup('assets')}>Retry assets</button><button onClick={() => void retrySetup('backend')}>Retry backend</button><button onClick={async () => { await retrySetup('all'); }}>Retry full setup</button></div>{setupRetryError && <p className='subtle'>{setupRetryError}</p>}<h3>Manual backend config</h3><div className='row-actions'><input value={cfgEdit.endpointUrl} onChange={(e)=>setCfgEdit({...cfgEdit,endpointUrl:e.target.value})} placeholder='endpoint url' /><input value={cfgEdit.modelName} onChange={(e)=>setCfgEdit({...cfgEdit,modelName:e.target.value})} placeholder='model name' /><select value={cfgEdit.mode} onChange={(e)=>setCfgEdit({...cfgEdit,mode:e.target.value})}><option value='bundled_llama_server'>bundled_llama_server</option><option value='external_openai_compatible'>external_openai_compatible</option></select><button onClick={async()=>{ await window.villani.config.updateBackendConfig(cfgEdit); await loadConfig(); }}>Save config</button></div></div>}
     </section>
 
     {debugOpen && <div className='drawer'><button onClick={() => setDebugOpen(false)}>Close</button><details><summary>Status</summary><pre>{JSON.stringify({ backend: backend?.status, assets: assets?.state }, null, 2)}</pre></details></div>}
