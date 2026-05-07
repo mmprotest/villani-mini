@@ -38,14 +38,14 @@ export class ManagedBrowser {
 
   async clickCandidate(candidateId: string) {
     if (!this.page || !this.snapshot) throw new Error('No snapshot');
-    const index = this.snapshot.clickableCandidates.findIndex((c) => c.id === candidateId);
+    const index = (this.snapshot.clickableCandidates ?? []).findIndex((c) => c.id === candidateId);
     if (index < 0) throw new Error('Stale candidate ID');
     await this.page.locator('a,button,input[type=button],input[type=submit]').nth(index).click();
   }
 
   async fillField(fieldId: string, value: string) {
     if (!this.page || !this.snapshot) throw new Error('No snapshot');
-    const index = this.snapshot.formFields.findIndex((f) => f.id === fieldId);
+    const index = (this.snapshot.formFields ?? []).findIndex((f) => f.id === fieldId);
     if (index < 0) throw new Error('Stale field ID');
     await this.page.locator('input,textarea,select').nth(index).fill(value);
   }

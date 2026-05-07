@@ -15,6 +15,8 @@ export class TaskStore {
   updateTask(taskId: string, patch: TaskRecord) { const s=this.load(); s.tasks[taskId] = { ...(s.tasks[taskId] ?? { id: taskId }), ...patch }; this.save(s); return s.tasks[taskId]; }
   appendAction(taskId: string, actionRecord: ActionRecord) { const s=this.load(); s.actions[taskId] = s.actions[taskId] ?? []; s.actions[taskId].push(actionRecord); this.save(s); return actionRecord; }
   getActions(taskId: string) { return this.load().actions[taskId] ?? []; }
+  getAction(taskId: string, actionId: string){ return this.getActions(taskId).find((a:any)=>a.id===actionId); }
+  updateAction(taskId: string, actionId: string, patch: ActionRecord){ const s=this.load(); const arr=s.actions[taskId]??[]; const i=arr.findIndex((a:any)=>a.id===actionId); if(i<0) throw new Error('action_not_found'); arr[i]={...arr[i],...patch,updatedAt:new Date().toISOString()}; s.actions[taskId]=arr; this.save(s); return arr[i]; }
   saveCompactState(taskId: string, state: CompactTaskState){ const s=this.load(); s.compactStates[taskId]=state; this.save(s); }
   getCompactState(taskId: string){ return this.load().compactStates[taskId]; }
   saveSetupState(state: any){ const s=this.load(); s.setupState=state; this.save(s); }
