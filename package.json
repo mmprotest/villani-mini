@@ -9,10 +9,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "electron .",
-    "package": "npm run build && electron-builder"
+    "package": "npm run build && electron-builder",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
     "docx": "^9.5.1",
     "electron": "^32.2.0",
     "mammoth": "^1.8.0",

@@ -6,6 +6,10 @@ import { pdfExtract } from './pdfExtract';
 import { imageOcr } from './imageOcr';
 import { fileSummaries } from './fileSummaries';
 
+export function ingestTextLike(filePath: string): string {
+  return textExtract(filePath);
+}
+
 export async function ingestFile(filePath: string){
   const ext = path.extname(filePath).toLowerCase();
   const stat = fs.statSync(filePath);
@@ -13,11 +17,12 @@ export async function ingestFile(filePath: string){
   let extractedText = '';
   let errorMessage: string | undefined;
   try {
-    if (ext === '.txt' || ext === '.md') extractedText = textExtract(filePath);
+    if (ext === '.txt' || ext === '.md') extractedText = ingestTextLike(filePath);
     else if (ext === '.docx') extractedText = await docxExtract(filePath);
     else if (ext === '.pdf') extractedText = await pdfExtract(filePath);
     else if (['.png','.jpg','.jpeg'].includes(ext)) extractedText = await imageOcr();
     else throw new Error(`Unsupported extension: ${ext}`);
+    if (!extractedText) throw new Error('Extraction returned empty content');
   } catch (e:any) {
     const msg = String(e?.message ?? e);
     extractionStatus = msg.includes('Unsupported') || msg.includes('unsupported') ? 'unsupported' : 'failed';

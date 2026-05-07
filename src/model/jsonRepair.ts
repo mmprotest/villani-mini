@@ -7,6 +7,17 @@ export function extractJsonBlock(text: string): string {
   return text;
 }
 
-export function repairJson(text:string){
+export function repairJson(text: string) {
   return extractJsonBlock(text).replace(/,\s*([}\]])/g, '$1');
+}
+
+export function jsonRepair(text: string): any {
+  try { return JSON.parse(repairJson(text)); }
+  catch {
+    return { type: 'ask_user', params: { question: 'Could you clarify next step?' } };
+  }
+}
+
+export function repairAndParseJson<T>(text: string): T {
+  return jsonRepair(text) as T;
 }

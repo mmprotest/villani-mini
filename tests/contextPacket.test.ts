@@ -1,1 +1,8 @@
-import { test,expect } from 'vitest'; import { buildContextPacket } from '../src/agent/contextPacket'; test('context compaction preserves candidate IDs and URLs',()=>{ const s=buildContextPacket(['click_1 https://a.com']); expect(s).toContain('click_1'); expect(s).toContain('https://a.com');});
+import { test, expect } from 'vitest';
+import { buildContextPacket } from '../src/agent/contextPacket';
+import { createInitialCompactState } from '../src/agent/compactState';
+
+test('context compaction preserves candidate IDs and URLs',()=>{
+  const s=buildContextPacket({taskId:'t1',userGoal:'g',currentObjective:'o',compactState:createInitialCompactState('g'),allowedActionTypes:['read_current_page'],snapshot:{snapshotId:'s1',capturedAt:new Date().toISOString(),status:'ok',url:'https://a.com',title:'A',textExcerpt:'hello',clickableCandidates:[{id:'click_1',role:'a',label:'go',text:'go',href:'https://a.com',riskHints:[]}],formFields:[]}});
+  expect(s).toContain('click_1'); expect(s).toContain('https://a.com');
+});
