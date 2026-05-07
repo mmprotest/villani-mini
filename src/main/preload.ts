@@ -44,6 +44,11 @@ type VillaniApi = {
     retryOnly: () => Promise<any>;
     onUpdated: (cb: (status: any) => void) => Unsubscribe;
   };
+  setup: {
+    retryAssets: () => Promise<any>;
+    retryBackend: () => Promise<any>;
+    retryAll: () => Promise<any>;
+  };
   localAssetsSelectModel: () => Promise<any>;
   localAssetsSelectServer: () => Promise<any>;
 };

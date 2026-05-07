@@ -16,7 +16,10 @@
     "dev:renderer": "vite --host 127.0.0.1",
     "dev:main": "node scripts/write-dist-package-json.mjs && tsc -p tsconfig.main.json --watch --preserveWatchOutput",
     "dev:electron": "wait-on tcp:5173 dist/main/main.js dist/package.json && node scripts/start-electron-dev.mjs",
-    "smoke:task": "npm run build:main && node scripts/smoke-task.cjs"
+    "smoke:task": "npm run build:main && node scripts/smoke-task.cjs",
+    "test:integration": "vitest run tests/integration",
+    "test:integration:watch": "vitest tests/integration",
+    "test:all": "npm run test && npm run test:integration && npm run typecheck"
   },
   "dependencies": {
     "docx": "^9.5.1",
