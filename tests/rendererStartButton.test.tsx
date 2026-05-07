@@ -1,8 +1,7 @@
 /** @vitest-environment jsdom */
-import React from 'react';
+import React, { act } from 'react';
 import { test, expect, vi } from 'vitest';
 import { createRoot } from 'react-dom/client';
-import { act } from 'react-dom/test-utils';
 import App from '../src/renderer/App';
 
 test('start button calls preload startTask', async () => {
@@ -26,5 +25,5 @@ test('start button calls preload startTask', async () => {
   await act(async () => { root.render(<App />); });
   const button = Array.from(div.querySelectorAll('button')).find((b) => b.textContent?.includes('Start task')) as HTMLButtonElement;
   await act(async () => { button.click(); });
-  expect(startTask).toHaveBeenCalled();
+  expect(startTask).toHaveBeenCalledWith({ goal: '' });
 });

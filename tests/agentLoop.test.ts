@@ -10,7 +10,7 @@ test('LocalOpenAIModelProvider rejects remote endpoints by default', async ()=>{
 
 test('AgentController creates action proposal from provider output', async ()=>{
   vi.spyOn(LocalOpenAIModelProvider.prototype, 'generateText').mockResolvedValue('ok');
-  vi.spyOn(LocalOpenAIModelProvider.prototype, 'generateJson').mockResolvedValue({ type:'final_answer', params:{ answer:'done'} } as any);
+  vi.spyOn(LocalOpenAIModelProvider.prototype, 'generateJson').mockResolvedValue({ type:'final_answer', params:{ summary:'done', remainingSteps:[] } } as any);
   const t = await agentController.startTask({goal:'Do thing'});
   expect(t.actionProposals[0].type).toBe('final_answer');
 });
