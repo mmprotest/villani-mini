@@ -10,7 +10,10 @@ const key = 'chatHistory';
 const id = ()=>`m_${Date.now()}_${Math.random()}`;
 
 export class ChatController {
-  provider = new LocalOpenAIModelProvider();
+  constructor(
+    private readonly provider = new LocalOpenAIModelProvider(),
+    private readonly getBackendConfig = () => modelBackendStore.getConfig()
+  ) {}
   getHistory(): ChatMessage[] { return taskStore.getSetupState()?.[key] ?? []; }
   private save(messages: ChatMessage[]){ taskStore.saveSetupState({ ...taskStore.getSetupState(), [key]: messages }); }
   private push(message: ChatMessage){ const all=[...this.getHistory(), message]; this.save(all); return all; }
@@ -20,16 +23,16 @@ export class ChatController {
     const route = routeChatIntent(text);
     if (route.kind === 'clarify') return this.push({ id:id(), type:'assistant', text:route.question });
     if (route.kind === 'chat') {
-      const cfg = modelBackendStore.getConfig();
+      const cfg = this.getBackendConfig();
       this.provider.configure(cfg.endpointUrl, cfg.modelName ?? 'local-model');
       try { const answer = await this.provider.generateText(text); return this.push({ id:id(), type:'assistant', text:answer }); }
       catch { return this.push({ id:id(), type:'error', text:'Local model is not ready yet.' }); }
     }
     const created:any = await agentController.createTask({ goal: route.taskInstruction });
     const taskId = created.task.id;
-    this.push({ id:id(), type:'task_progress', text:'Working on it...', taskId });
-    const result:any = await agentController.runTask(taskId);
-    return this.appendTaskResult(result);
+    const out = this.push({ id:id(), type:'task_progress', text:'Working on it...', taskId });
+    void agentController.runTask(taskId).then((result:any)=>this.appendTaskResult(result)).catch(()=>this.push({ id:id(), type:'error', text:'Task failed due to an internal error.', taskId }));
+    return out;
   }
 
   appendTaskResult(state:any){

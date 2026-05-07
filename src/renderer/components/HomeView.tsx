@@ -1,7 +1,31 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { formatTraceRow, redactSensitive } from './taskDebug';
 
 type View = 'Home' | 'Activities' | 'Browser Control' | 'Commands' | 'History' | 'Settings';
 const navItems: View[] = ['Home', 'Activities', 'Browser Control', 'Commands', 'History', 'Settings'];
+
+const fmt = (iso?: string) => iso ? new Date(iso).toLocaleTimeString() : '';
+
+function TaskTrace({ taskId }: { taskId: string }) {
+  const [state, setState] = useState<any>();
+  useEffect(() => { window.villani.task.getState(taskId).then(setState); const off = window.villani.task.onEvent((e:any)=>{ if(e.taskId===taskId) window.villani.task.getState(taskId).then(setState); }); return ()=>off?.(); }, [taskId]);
+  if (!state) return <div className='subtle'>Loading trace…</div>;
+  const events = (state.events || []).slice(-20);
+  const actions = state.actions || [];
+  const approvals = actions.filter((a:any)=>a.requiresApproval).length;
+  const failures = actions.filter((a:any)=>a.status==='failed').length;
+  const summary = `goal: ${redactSensitive(state.task.userGoal)}\nbackend/model: local\nfinal status: ${state.task.status}\nactions taken: ${actions.length}\nfailures: ${failures}\napprovals: ${approvals}\nevidence refs: ${(state.evidence||[]).map((e:any)=>e.id).join(', ') || 'none'}\nfinal: ${state.finalAnswer?.summary || state.finalAnswer?.blockedReason || 'in_progress'}`;
+  return <div className='panel' style={{ marginTop: 8 }}>
+    <button className='ghost' onClick={() => navigator.clipboard.writeText(summary)}>Copy debug summary</button>
+    {events.map((e:any) => {
+      const a = actions.find((x:any)=>x.id===e.refId);
+      const row = formatTraceRow({ at: e.at, type: e.type, actionName: a?.type, target: a?.title || a?.reason, result: e.summary, risk: (a?.requiresApproval ? 'approval_required' : a?.riskLevel) });
+      return <div key={e.id} className='msg task_progress'>
+        <strong>{row.timestamp}</strong> · {row.eventType} · {row.actionName} · {row.targetSummary} · {row.resultSummary} · {row.riskStatus}
+      </div>;
+    })}
+  </div>;
+}
 
 export default function HomeView() {
   const [backend, setBackend] = useState<any>({ status: 'checking' });
@@ -9,9 +33,12 @@ export default function HomeView() {
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [responseError, setResponseError] = useState('');
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
   const [debugOpen, setDebugOpen] = useState(false);
   const [view, setView] = useState<View>('Home');
   const [advanced, setAdvanced] = useState(false);
+  const [expandedTask, setExpandedTask] = useState<string | null>(null);
 
   useEffect(() => {
     window.villani.backend?.getStatus?.().then?.(setBackend);
@@ -34,11 +61,41 @@ export default function HomeView() {
     const v = instruction.trim();
     if (!v || sending || !ready) return;
     setSending(true);
-    try { const out = await window.villani.chat.sendMessage(v); if (Array.isArray(out)) setMessages(out); }
+    try { const out = await window.villani.chat.sendMessage(v); if (Array.isArray(out)) setMessages(out); setResponseError(''); }
+    catch (e) { setResponseError(e instanceof Error ? e.message : String(e)); }
     finally { setSending(false); }
   };
 
   const quick = useMemo(() => ['Summarize this page', 'Open Downloads folder', 'Find recent invoices', 'Take a screenshot'], []);
+
+  const respondToApproval = async (message: any, approve: boolean) => {
+    if (!message?.taskId || !message?.proposalId) {
+      setResponseError('Approval request is missing task or proposal id.');
+      return;
+    }
+    try {
+      const out = approve
+        ? await window.villani.chat.approve(message.taskId, message.proposalId)
+        : await window.villani.chat.reject(message.taskId, message.proposalId, 'Rejected by user');
+      if (Array.isArray(out)) setMessages(out);
+      setResponseError('');
+    } catch (e) {
+      setResponseError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const submitUserAnswer = async (message: any) => {
+    const answer = (questionAnswers[message.id] || '').trim();
+    if (!message?.taskId || !answer) return;
+    try {
+      const out = await window.villani.chat.answer(message.taskId, answer);
+      if (Array.isArray(out)) setMessages(out);
+      setQuestionAnswers((prev) => ({ ...prev, [message.id]: '' }));
+      setResponseError('');
+    } catch (e) {
+      setResponseError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return <div className='app-shell'>
     <aside className='sidebar'>
@@ -73,12 +130,11 @@ export default function HomeView() {
         </form>
 
         <div className='quick'>{quick.map((q) => <button key={q} className='quick-btn' onClick={() => void send(q)} disabled={!ready || sending}>{q}</button>)}</div>
-        <div className='panel'>{messages.length === 0 && ready ? <p>Villani Mini is ready. Ask a question, or ask me to do something.</p> : messages.slice(-8).map((m) => <div key={m.id} className={`msg ${m.type || m.role}`}>{m.text || m.content}</div>)}</div>
-        <footer className='subtle'>Local agent · Your data stays on your machine</footer>
+        <div className='panel'>{messages.length === 0 && ready ? <p>Villani Mini is ready. Ask a question, or ask me to do something.</p> : messages.slice(-8).map((m) => <div key={m.id}><div className={`msg ${m.type || m.role}`}>{m.text || m.content}</div>{m.taskId && <button className='ghost' onClick={()=>setExpandedTask(expandedTask===m.taskId?null:m.taskId)}>{expandedTask===m.taskId?'Hide trace':'Show trace'}</button>}{m.taskId && expandedTask===m.taskId && <TaskTrace taskId={m.taskId} />}</div>)}</div>
       </>}
       {view !== 'Home' && <div className='panel'><h2>{view}</h2><p className='subtle'>Product view for {view}.</p></div>}
     </section>
 
-    {debugOpen && <div className='drawer'><button onClick={() => setDebugOpen(false)}>Close</button><details><summary>Status</summary><pre>{JSON.stringify({ backend: backend?.status, assets: assets?.state }, null, 2)}</pre></details><details><summary>Raw backend JSON</summary><pre>{JSON.stringify({ backend, assets }, null, 2)}</pre></details></div>}
+    {debugOpen && <div className='drawer'><button onClick={() => setDebugOpen(false)}>Close</button><details><summary>Status</summary><pre>{JSON.stringify({ backend: backend?.status, assets: assets?.state }, null, 2)}</pre></details></div>}
   </div>;
 }
