@@ -11,6 +11,7 @@ import { TaskStore, taskStore } from '../store/taskStore';
 import { FileStore, fileStore } from '../store/fileStore';
 import type { ActionRecord } from '../shared/types';
 import { hashText } from '../utils/hashing';
+import { modelBackendStore } from '../store/modelBackendStore';
 
 export type RunBudget={maxTurns:number;maxActions:number;maxMs:number;maxNoProgressTurns:number;maxRepeatedFailures:number;maxConsecutiveReadOnlyTurns:number};
 const DEFAULT_BUDGET:RunBudget={maxTurns:20,maxActions:40,maxMs:180000,maxNoProgressTurns:4,maxRepeatedFailures:3,maxConsecutiveReadOnlyTurns:6};
@@ -19,7 +20,13 @@ const normalize = (v: unknown): unknown => Array.isArray(v) ? v.map(normalize) :
 const normalizeObs = (s: string) => s.trim().replace(/\s+/g, ' ').slice(0, 280);
 
 export class AgentController {
-  constructor(private readonly provider = new LocalOpenAIModelProvider(), private readonly browser = new ManagedBrowser(), private readonly store: TaskStore = taskStore, private readonly files: FileStore = fileStore) {}
+  constructor(
+    private readonly provider = new LocalOpenAIModelProvider(),
+    private readonly browser = new ManagedBrowser(),
+    private readonly store: TaskStore = taskStore,
+    private readonly files: FileStore = fileStore,
+    private readonly getBackendConfig = () => modelBackendStore.getConfig()
+  ) {}
   async createTask(input:{goal:string}){ const id=`t_${Date.now()}`; this.store.createTask({id,userGoal:input.goal,status:'idle',pendingUserQuestion:null,finalAnswer:null,pendingProposalId:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}); this.store.saveCompactState(id,createInitialCompactState(input.goal)); return this.getTaskState(id); }
   private event(taskId:string,type:string,summary:string,refId?:string){ this.store.appendEvent(taskId,{id:`e_${Date.now()}_${Math.random()}`,taskId,type,summary:sanitize(summary),at:new Date().toISOString(),refId}); }
   private progressFingerprint(taskId: string, action: any, out: ActionExecutionResult, compact: any) {
@@ -67,6 +74,12 @@ export class AgentController {
       }
     }
   }
+  private configureProvider(taskId: string){
+    const cfg = this.getBackendConfig();
+    if (typeof (this.provider as any).configure === 'function') (this.provider as any).configure(cfg.endpointUrl, cfg.modelName ?? 'local-model');
+    const safeEndpoint = cfg.endpointUrl.replace(/\/chat\/completions$/, '').replace(/\/+$/, '');
+    this.event(taskId,'model_backend_config',`Using model backend endpoint=${safeEndpoint} model=${cfg.modelName ?? 'local-model'} mode=${cfg.mode}`);
+  }
   async stepTask(taskId:string){ const task:any=this.store.getTask(taskId); if(!task) throw new Error('task_not_found');
     this.event(taskId,'turn_started','Turn started');
     const compact=this.store.getCompactState(taskId) ?? createInitialCompactState(task.userGoal);
@@ -113,7 +126,15 @@ export class AgentController {
   async approveAction(taskId:string,proposalId:string){ this.store.updateAction(taskId,proposalId,{status:'approved'}); return this.executeProposal(taskId,proposalId); }
   rejectAction(taskId:string,proposalId:string,reason?:string){ this.store.updateAction(taskId,proposalId,{status:'rejected',rejectionReason:reason}); this.store.updateTask(taskId,{status:'idle',pendingProposalId:null}); return this.getTaskState(taskId); }
   async answerUserQuestion(taskId:string, answer:string){ const t:any=this.store.getTask(taskId); const q=t?.pendingUserQuestion?.question??'question'; this.store.appendAction(taskId,{id:`a_${Date.now()}`,taskId,type:'user_answer',params:{answer},title:'user answer',reason:q,expectedOutcome:'resume',riskLevel:'low',requiresApproval:false,reversible:true,evidenceRefs:[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),status:'completed',observationSummary:answer}); const compact=updateCompactStateAfterObservation(this.store.getCompactState(taskId),'ask_user',q,{answer,ok:true}); this.store.saveCompactState(taskId,compact); this.store.updateTask(taskId,{status:'idle',pendingUserQuestion:null}); return this.getTaskState(taskId); }
-  async executeProposal(taskId:string,proposalId:string){ this.store.updateAction(taskId,proposalId,{status:'executing'}); const a:any=this.store.getAction(taskId,proposalId); this.event(taskId,'action_started',a.type,proposalId); let out: ActionExecutionResult;
+  async executeProposal(taskId:string,proposalId:string){ this.store.updateAction(taskId,proposalId,{status:'executing'}); const a:any=this.store.getAction(taskId,proposalId); this.event(taskId,'action_started',a.type,proposalId); const evalResult = evaluateActionPermission(a.type, a.params ?? {}, 'low', { snapshot: this.browser.getCurrentSnapshot() });
+    if (!evalResult.canExecute) {
+      const failMsg = evalResult.failureReason ?? 'Action blocked by permission engine.';
+      this.store.updateAction(taskId,proposalId,{status:'failed',error:failMsg,observationSummary:failMsg,approvalDetails:{...(a.approvalDetails||{}),targetSummary:evalResult.targetSummary,riskReasons:evalResult.riskReasons,snapshotId:this.browser.getCurrentSnapshot()?.snapshotId}});
+      this.store.updateTask(taskId,{status:'idle',pendingProposalId:null,recoveryHint:failMsg});
+      this.event(taskId,'recoverable_action_failed',failMsg,proposalId);
+      return this.getTaskState(taskId);
+    }
+    let out: ActionExecutionResult;
     try { out = await executeAction(a,this.browser,()=>{}); } catch (e) { this.store.updateTask(taskId,{status:'error',pendingProposalId:null}); this.event(taskId,'unrecoverable_action_failed',String(e),proposalId); return this.getTaskState(taskId); }
     this.store.updateAction(taskId,proposalId,out.ok?{status:'completed',observationSummary:out.observationSummary,evidenceRefs:out.evidenceRefs}:{status:'failed',error:out.error ?? out.observationSummary,observationSummary:out.observationSummary,evidenceRefs:out.evidenceRefs});
     if(out.browserSnapshot){ const ev={id:`snapshot:${out.browserSnapshot.snapshotId}`,type:'snapshot',snapshotId:out.browserSnapshot.snapshotId,url:out.browserSnapshot.url,title:out.browserSnapshot.title,capturedAt:new Date().toISOString(),visibleTextSummary:out.browserSnapshot.visibleTextSummary,candidates:(out.browserSnapshot.clickableCandidates||[]).slice(0,6).map((c:any)=>c.label||c.text)}; this.store.saveEvidence(taskId,ev); this.event(taskId,'evidence_recorded',ev.id); }

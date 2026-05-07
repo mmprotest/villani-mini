@@ -4,6 +4,10 @@ export class LocalOpenAIModelProvider {
   private endpoint = 'http://127.0.0.1:34783/v1/chat/completions';
   private modelName = 'local-model';
 
+  getConfig() {
+    return { endpoint: this.endpoint, modelName: this.modelName };
+  }
+
   configure(endpointUrl: string, modelName = 'local-model') {
     this.endpoint = `${endpointUrl.replace(/\/+$/, '')}/chat/completions`;
     this.modelName = modelName;
