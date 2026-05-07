@@ -4,7 +4,9 @@ export interface ContextPacketInput { taskId:string; userGoal:string; currentObj
 
 export function buildContextPacket(i:ContextPacketInput){
   return JSON.stringify({
-    taskContract:{successPredicate:"complete the user's browser/file task or explain blocker",preferredNextAction:'smallest useful next action',noGoActions:['destructive submit','payments','credentials','account deletion','external exfiltration'],evidenceRequiredBeforeFinish:'cite evidence refs for factual claims',maxScope:'current tab + attached files'},
+    protocol: ACTION_PROTOCOL,
+    taskContract:{successPredicate:'complete the user\'s browser/file task or explain blocker',preferredNextAction:'smallest useful next action',noGoActions:['destructive submit','payments','credentials','account deletion','external exfiltration'],evidenceRequiredBeforeFinish:'cite evidence refs for factual claims',maxScope:'current tab + attached files'},
+    taskGoal:i.userGoal,
     objective:i.currentObjective,
     compactState:i.compactState,
     browser:i.snapshot?{snapshotId:i.snapshot.snapshotId,url:i.snapshot.url,title:i.snapshot.title,status:i.snapshot.status,visibleTextSummary:i.snapshot.visibleTextSummary,candidates:(i.snapshot.clickableCandidates||[]).slice(0,15),fields:(i.snapshot.formFields||[]).slice(0,12)}:null,
@@ -14,4 +16,8 @@ export function buildContextPacket(i:ContextPacketInput){
   });
 }
 
-export function buildActionPrompt(packet:string){ return `Return exactly one JSON action object. No prose.\n${packet}`; }
+export function buildActionPrompt(packet:string){ return `You are an action planner for a small local model runner.\nReturn one action JSON object that matches the protocol and allowed schemas in the packet.\n${packet}`; }
+
+export function buildRepairPrompt(packet:string, validationError:string, invalidOutput:string){
+  return `Your previous action JSON was invalid. Return one corrected JSON action object only.\nValidation error: ${validationError}\nInvalid output:\n${invalidOutput}\nContext packet:\n${packet}`;
+}
