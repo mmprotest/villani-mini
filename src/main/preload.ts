@@ -1,26 +1,44 @@
 import { contextBridge, ipcRenderer } from 'electron';
-contextBridge.exposeInMainWorld('villani', {
-  getModelBackendStatus: ()=>ipcRenderer.invoke('modelBackend:getStatus'),
-  getModelBackendLogs: ()=>ipcRenderer.invoke('modelBackend:getLogs'),
-  startModelBackend: ()=>ipcRenderer.invoke('modelBackend:start'),
-  restartModelBackend: ()=>ipcRenderer.invoke('modelBackend:restart'),
-  localAssetsGetStatus: ()=>ipcRenderer.invoke('localAssets:getStatus'),
-  localAssetsEnsureReady: ()=>ipcRenderer.invoke('localAssets:ensureReady'),
-  localAssetsRetry: ()=>ipcRenderer.invoke('localAssets:retry'),
-  localAssetsSelectModel: ()=>ipcRenderer.invoke('localAssets:selectModelFile'),
-  localAssetsSelectServer: ()=>ipcRenderer.invoke('localAssets:selectServerBinary'),
-  localAssetsGetDiagnostics: ()=>ipcRenderer.invoke('localAssets:getDiagnostics'),
-  listTasks: ()=>ipcRenderer.invoke('task:list'),
-  getTaskState: (taskId:string)=>ipcRenderer.invoke('task:getState', taskId),
-  runTask: (taskId:string)=>ipcRenderer.invoke('task:run', taskId),
-  stepTask: (taskId:string)=>ipcRenderer.invoke('task:step', taskId),
-  stopTask: (taskId:string)=>ipcRenderer.invoke('task:stop', taskId),
-  sendMessage: (text:string)=>ipcRenderer.invoke('chat:sendMessage', text),
-  getChatHistory: ()=>ipcRenderer.invoke('chat:getHistory'),
-  approveChatAction: (taskId:string, proposalId:string)=>ipcRenderer.invoke('chat:approve', taskId, proposalId),
-  rejectChatAction: (taskId:string, proposalId:string, reason?:string)=>ipcRenderer.invoke('chat:reject', taskId, proposalId, reason),
-  answerChatQuestion: (taskId:string, answer:string)=>ipcRenderer.invoke('chat:answer', taskId, answer),
-  onBackendStatusUpdated: (cb:(s:any)=>void)=>{ const l=(_e:any,s:any)=>cb(s); ipcRenderer.on('modelBackend:statusUpdated', l); return ()=>ipcRenderer.removeListener('modelBackend:statusUpdated', l); },
-  onChatUpdated: (cb:(m:any[])=>void)=>{ const l=(_e:any,m:any[])=>cb(m); ipcRenderer.on('chat:updated', l); return ()=>ipcRenderer.removeListener('chat:updated', l); },
-  onLocalAssetsUpdated: (cb:(s:any)=>void)=>{ const l=(_e:any,s:any)=>cb(s); ipcRenderer.on('localAssets:statusUpdated', l); return ()=>ipcRenderer.removeListener('localAssets:statusUpdated', l); }
-});
+
+const villani = {
+  chat: {
+    sendMessage: (text: string) => ipcRenderer.invoke('chat:sendMessage', text),
+    getMessages: () => ipcRenderer.invoke('chat:getHistory'),
+    onUpdated: (cb: (messages: any[]) => void) => {
+      const listener = (_event: any, payload: any[]) => cb(payload);
+      ipcRenderer.on('chat:updated', listener);
+      return () => ipcRenderer.removeListener('chat:updated', listener);
+    }
+  },
+  backend: {
+    getStatus: () => ipcRenderer.invoke('modelBackend:getStatus'),
+    retry: () => ipcRenderer.invoke('modelBackend:restart'),
+    stop: () => ipcRenderer.invoke('modelBackend:stop'),
+    onUpdated: (cb: (status: any) => void) => {
+      const listener = (_event: any, payload: any) => cb(payload);
+      ipcRenderer.on('modelBackend:statusUpdated', listener);
+      return () => ipcRenderer.removeListener('modelBackend:statusUpdated', listener);
+    }
+  },
+  assets: {
+    getStatus: () => ipcRenderer.invoke('localAssets:getStatus'),
+    retry: () => ipcRenderer.invoke('localAssets:retry'),
+    onUpdated: (cb: (status: any) => void) => {
+      const listener = (_event: any, payload: any) => cb(payload);
+      ipcRenderer.on('localAssets:statusUpdated', listener);
+      return () => ipcRenderer.removeListener('localAssets:statusUpdated', listener);
+    }
+  },
+  getModelBackendStatus: () => ipcRenderer.invoke('modelBackend:getStatus'),
+  localAssetsGetStatus: () => ipcRenderer.invoke('localAssets:getStatus'),
+  getChatHistory: () => ipcRenderer.invoke('chat:getHistory'),
+  sendMessage: (text: string) => ipcRenderer.invoke('chat:sendMessage', text),
+  onBackendStatusUpdated: (cb: (status: any) => void) => villani.backend.onUpdated(cb),
+  onLocalAssetsUpdated: (cb: (status: any) => void) => villani.assets.onUpdated(cb),
+  onChatUpdated: (cb: (messages: any[]) => void) => villani.chat.onUpdated(cb),
+  localAssetsRetry: () => ipcRenderer.invoke('localAssets:retry'),
+  localAssetsSelectModel: () => ipcRenderer.invoke('localAssets:selectModelFile'),
+  localAssetsSelectServer: () => ipcRenderer.invoke('localAssets:selectServerBinary')
+};
+
+contextBridge.exposeInMainWorld('villani', villani);
