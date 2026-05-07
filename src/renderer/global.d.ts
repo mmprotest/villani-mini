@@ -2,14 +2,10 @@ export {};
 
 type Unsubscribe = (() => void) | void;
 
-type ChatMessage = {
-  id: string;
-  type: 'user' | 'assistant' | 'system_status' | 'task_progress' | 'approval_request' | 'user_question' | 'error';
-  text: string;
-  taskId?: string;
-  options?: string[];
-  proposalId?: string;
-};
+  chat:{sendMessage:(text:string)=>Promise<any>;getMessages:()=>Promise<any[]>;onUpdated:(cb:(m:any[])=>void)=>(()=>void)|void;};
+  backend:{getStatus:()=>Promise<any>;retry:()=>Promise<any>;stop:()=>Promise<any>;onUpdated:(cb:(s:any)=>void)=>(()=>void)|void;};
+  assets:{getStatus:()=>Promise<any>;retry:()=>Promise<any>;onUpdated:(cb:(s:any)=>void)=>(()=>void)|void;};
+  task:{getState:(taskId:string)=>Promise<any>;onEvent:(cb:(e:any)=>void)=>(()=>void)|void;};
 
 declare global {
   interface Window {
