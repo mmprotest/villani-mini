@@ -2,23 +2,16 @@ export {};
 
 type Unsubscribe = (() => void) | void;
 
-  chat:{sendMessage:(text:string)=>Promise<any>;getMessages:()=>Promise<any[]>;onUpdated:(cb:(m:any[])=>void)=>(()=>void)|void;};
-  backend:{getStatus:()=>Promise<any>;retry:()=>Promise<any>;stop:()=>Promise<any>;onUpdated:(cb:(s:any)=>void)=>(()=>void)|void;};
-  assets:{getStatus:()=>Promise<any>;retry:()=>Promise<any>;onUpdated:(cb:(s:any)=>void)=>(()=>void)|void;};
-  task:{list:()=>Promise<any[]>;getState:(taskId:string)=>Promise<any>;};
-  browser:{getStatus:()=>Promise<any>;openUrl:(url:string)=>Promise<any>;readCurrentPage:()=>Promise<any>;};
-  config:{getBackendConfig:()=>Promise<any>;updateBackendConfig:(patch:any)=>Promise<any>;};
-
 declare global {
   interface Window {
     villani: {
       chat: {
-        sendMessage: (text: string) => Promise<ChatMessage[]>;
-        getMessages: () => Promise<ChatMessage[]>;
-        approve: (taskId: string, proposalId: string) => Promise<ChatMessage[]>;
-        reject: (taskId: string, proposalId: string, reason?: string) => Promise<ChatMessage[]>;
-        answer: (taskId: string, answer: string) => Promise<ChatMessage[]>;
-        onUpdated: (cb: (messages: ChatMessage[]) => void) => Unsubscribe;
+        sendMessage: (text: string) => Promise<any[]>;
+        getMessages: () => Promise<any[]>;
+        approve: (taskId: string, proposalId: string) => Promise<any[]>;
+        reject: (taskId: string, proposalId: string, reason?: string) => Promise<any[]>;
+        answer: (taskId: string, answer: string) => Promise<any[]>;
+        onUpdated: (cb: (messages: any[]) => void) => Unsubscribe;
       };
       backend: {
         getStatus: () => Promise<any>;
@@ -32,13 +25,23 @@ declare global {
         onUpdated: (cb: (status: any) => void) => Unsubscribe;
       };
       task: {
+        list: () => Promise<any[]>;
         getState: (taskId: string) => Promise<any>;
         run: (taskId: string, options?: unknown) => Promise<any>;
         step: (taskId: string) => Promise<any>;
         stop: (taskId: string) => Promise<any>;
-        answerUserQuestion: (taskId: string, answer: string) => Promise<ChatMessage[]>;
-        approveAction: (taskId: string, proposalId: string) => Promise<ChatMessage[]>;
-        rejectAction: (taskId: string, proposalId: string, reason?: string) => Promise<ChatMessage[]>;
+        answerUserQuestion: (taskId: string, answer: string) => Promise<any[]>;
+        approveAction: (taskId: string, proposalId: string) => Promise<any[]>;
+        rejectAction: (taskId: string, proposalId: string, reason?: string) => Promise<any[]>;
+      };
+      browser: {
+        getStatus: () => Promise<any>;
+        openUrl: (url: string) => Promise<any>;
+        readCurrentPage: () => Promise<any>;
+      };
+      config: {
+        getBackendConfig: () => Promise<any>;
+        updateBackendConfig: (patch: any) => Promise<any>;
       };
       localAssetsSelectModel: () => Promise<any>;
       localAssetsSelectServer: () => Promise<any>;

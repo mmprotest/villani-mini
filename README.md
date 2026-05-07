@@ -2,33 +2,30 @@
 
 Local-first desktop agent built with Electron + React + TypeScript.
 
-## Overview
-Villani Mini turns open-ended user requests into a structured execution workspace: understanding, plan, compact state, evidence, actions, approvals, execution state, and final result.
+## Setup
+1. Install dependencies:
+   - `npm install`
+2. Optional model backend env (for external OpenAI-compatible backend):
+   - `OPENAI_BASE_URL=https://your-endpoint/v1`
+   - `OPENAI_MODEL=your-model`
 
-## Model
-Default model URL:
-https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-IQ4_XS.gguf
+## Backend configuration
+- App backend mode/config is stored in the model backend store and is shared by chat + task runner.
+- Agent/Chat both configure provider endpoint as `<endpoint>/chat/completions` and model name from current config.
+- `model_backend_config` events are emitted in task runs with sanitized endpoint/model details.
 
-Manual fallback:
-`llama-server --model /path/to/Qwen3.5-4B-IQ4_XS.gguf --host 127.0.0.1 --port 34783 --ctx-size 8192`
+## Running the app
+- Dev: `npm run dev`
+- Build: `npm run build`
+- Start built app: `npm run start`
 
-## Architecture
-- Electron main process handles setup, IPC, agent, browser, files, and persistence.
-- React renderer shows setup and task workspace.
-- SQLite persistence and typed actions via Zod.
+## Tests and checks
+- Unit/integration tests: `npm test`
+- Typecheck: `npm run typecheck`
+- Controller smoke (live-backend aware): `npm run smoke:task`
+  - Skips clearly if backend env is not configured.
 
-## Security
-- Local model by default.
-- llama-server bound to `127.0.0.1`.
-- Approval-first browser-changing actions.
-
-## Scripts
-- `npm run dev`
-- `npm run build`
-- `npm run test`
-- `npm run test:watch`
-- `npm run start`
-- `npm run package`
-
-## Troubleshooting
-If local runtime is unavailable, verify model path, llama-server binary, and endpoint health.
+## Current limitations
+- Desktop/browser actions are bounded and approval-gated for sensitive operations.
+- No claim of full autonomous desktop control; user approvals and safe path constraints still apply.
+- Managed browser robustness suite includes skipped cases in CI-constrained environments.

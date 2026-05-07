@@ -12,6 +12,7 @@ import { FileStore, fileStore } from '../store/fileStore';
 import type { ActionRecord } from '../shared/types';
 import { hashText } from '../utils/hashing';
 import { modelBackendStore } from '../store/modelBackendStore';
+import type { LocalModelBackendConfig } from '../model/LlamaServerManager';
 
 export type RunBudget={maxTurns:number;maxActions:number;maxMs:number;maxNoProgressTurns:number;maxRepeatedFailures:number;maxConsecutiveReadOnlyTurns:number};
 const DEFAULT_BUDGET:RunBudget={maxTurns:20,maxActions:40,maxMs:180000,maxNoProgressTurns:4,maxRepeatedFailures:3,maxConsecutiveReadOnlyTurns:6};
@@ -25,7 +26,7 @@ const inferTargetIds = (params: Record<string, unknown>) => Object.entries(param
 
 export class AgentController {
   private listeners = new Set<(event: any) => void>();
-  constructor(private readonly provider = new LocalOpenAIModelProvider(), private readonly browser = new ManagedBrowser(), private readonly store: TaskStore = taskStore, private readonly files: FileStore = fileStore) {}
+  constructor(private readonly provider = new LocalOpenAIModelProvider(), private readonly browser = new ManagedBrowser(), private readonly store: TaskStore = taskStore, private readonly files: FileStore = fileStore, private readonly getBackendConfig = (): LocalModelBackendConfig => modelBackendStore.getConfig()) {}
   onEvent(cb: (event: any) => void){ this.listeners.add(cb); return () => this.listeners.delete(cb); }
   async createTask(input:{goal:string}){ const id=`t_${Date.now()}`; this.store.createTask({id,userGoal:input.goal,status:'idle',pendingUserQuestion:null,finalAnswer:null,pendingProposalId:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}); this.store.saveCompactState(id,createInitialCompactState(input.goal)); return this.getTaskState(id); }
   private event(taskId:string,type:string,summary:string,refId?:string){ const payload={id:`e_${Date.now()}_${Math.random()}`,taskId,type,summary:sanitize(summary),at:new Date().toISOString(),refId}; this.store.appendEvent(taskId,payload); this.listeners.forEach((l)=>l(payload)); }
@@ -64,7 +65,7 @@ export class AgentController {
     return hashText(JSON.stringify({ actionName: action.type, params: normalizedParams, targetIds: inferTargetIds(normalizedParams) }));
   }
   async runTask(taskId:string, options?:Partial<RunBudget>){ const b={...DEFAULT_BUDGET,...options}; const start=Date.now(); let turns=0,actions=0,noProgress=0,repeatedFail=0,lastFp=''; this.store.updateTask(taskId,{status:'running'}); this.event(taskId,'task_started','Task run started');
-    while(true){ if(Date.now()-start>b.maxMs || turns>=b.maxTurns || actions>=b.maxActions){ this.store.updateTask(taskId,{status:'blocked',finalAnswer:{summary:'Budget exhausted.',evidenceRefs:[],remainingSteps:['Refine objective and retry'],uncertainty:'high',blockedReason:'budget_exhausted'}}); this.event(taskId,'task_blocked','Budget exhausted'); return this.getTaskState(taskId);} 
+    while(true){ if(Date.now()-start>b.maxMs || turns>=b.maxTurns || actions>=b.maxActions){ const blockedReason = noProgress>0 ? 'no_progress' : 'budget_exhausted'; this.store.updateTask(taskId,{status:'blocked',finalAnswer:{summary:blockedReason==='no_progress'?'Blocked due to repeated no-progress loop.':'Budget exhausted.',evidenceRefs:[],remainingSteps:['Refine objective and retry'],uncertainty:'high',blockedReason}}); this.event(taskId,'task_blocked',blockedReason); return this.getTaskState(taskId);} 
       const s:any=await this.stepTask(taskId); turns++; actions=s.actions.length;
       if(['completed','blocked','waiting_for_approval','waiting_for_user','stopped','error'].includes(s.task.status)) return s;
       const last=s.actions[s.actions.length-1];
@@ -72,7 +73,11 @@ export class AgentController {
       repeatedFail = failedKey && failedKey === s.task.lastFailureKey ? (s.task.repeatedFailureCount ?? 0) + 1 : (last?.status==='failed' ? 1 : 0);
       this.store.updateTask(taskId,{lastFailureKey:failedKey,repeatedFailureCount:repeatedFail});
       const fp = s.task.lastProgressFingerprint ?? '';
-      if (fp && fp === lastFp) { noProgress++; this.event(taskId,'no_progress_detected',`Turn repeated fingerprint ${fp}`); } else { noProgress = 0; }
+      if (fp && fp === lastFp) { noProgress++; this.event(taskId,'no_progress_detected',`Turn repeated fingerprint ${fp}`);
+        if (noProgress===1) this.event(taskId,'recovery_stage_1','Detected repetition; nudging alternative action.');
+        if (noProgress===2) { this.event(taskId,'recovery_stage_2','Ban repeating the exact next action signature.'); this.event(taskId,'recovery_ban_applied','Exact-repeat action ban applied for next turn.'); }
+        if (noProgress===3) this.event(taskId,'recovery_stage_3','Force a fresh read/inspect before acting.');
+      } else { noProgress = 0; }
       lastFp = fp;
       if(repeatedFail>=b.maxRepeatedFailures || noProgress>=b.maxNoProgressTurns){
         const reason = repeatedFail>=b.maxRepeatedFailures ? 'repeated_failed_action' : 'no_progress';
@@ -98,7 +103,8 @@ export class AgentController {
     const compact=this.store.getCompactState(taskId) ?? createInitialCompactState(task.userGoal);
     const packet=buildContextPacket({taskId,userGoal:task.userGoal,currentObjective:compact.currentObjective,compactState:compact,snapshot:this.browser.getCurrentSnapshot(),recentActions:this.store.getActions(taskId).map((a:any)=>({type:a.type,status:a.status,observation:a.observationSummary||a.error||''})),failedAttempts:compact.failedAttempts,fileSummaries:this.files.listFilesForTask(taskId).map((f:any)=>f.summary).filter(Boolean),allowedActionTypes:['open_url','read_current_page','click_candidate','fill_field','ask_user','final_answer'],recoveryHint:task.recoveryHint,userAnswers:compact.userProvidedAnswers,pendingUserQuestion:task.pendingUserQuestion,pendingApproval:task.pendingProposalId?this.store.getAction(taskId,task.pendingProposalId):null,noProgressSummary: task.lastProgressFingerprint ? `Recent no-progress count: ${task.noProgressTurns ?? 0}` : undefined,repeatedFailureSummary: task.repeatedFailureCount ? `Repeated failures: ${task.repeatedFailureCount}` : undefined});
     this.event(taskId,'model_call_started','Model request started');
-    const action=await this.generateActionWithRepair(packet); this.event(taskId,'model_action_proposed',action.type);
+    this.configureProvider(taskId);
+    const action=await this.generateActionWithRepair(taskId, packet); this.event(taskId,'model_action_proposed',action.type);
     return this.persistProposalAndMaybeExecute(taskId,action);
   }
   private normalizeActionCandidate(input: unknown): unknown {
