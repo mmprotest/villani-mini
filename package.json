@@ -4,13 +4,18 @@
   "main": "dist/main/main.js",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
-    "build": "vite build && tsc -p tsconfig.json",
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
+    "build": "npm run build:renderer && npm run build:main && node scripts/check-electron-build.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "electron .",
     "package": "npm run build && electron-builder",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "dev:main": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",
+    "dev:electron": "wait-on tcp:5173 dist/main/main.js && electron ."
   },
   "dependencies": {
     "docx": "^9.5.1",

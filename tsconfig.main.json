@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true
+  },
+  "include": [
+    "src/main/**/*.ts",
+    "src/model/**/*.ts",
+    "src/store/**/*.ts",
+    "src/shared/**/*.ts",
+    "src/utils/**/*.ts",
+    "src/actions/**/*.ts",
+    "src/agent/**/*.ts",
+    "src/browser/**/*.ts",
+    "src/files/**/*.ts"
+  ],
+  "exclude": ["tests", "dist"]
+}
