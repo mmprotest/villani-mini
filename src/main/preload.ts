@@ -13,6 +13,7 @@ const villani = {
   backend: {
     getStatus: () => ipcRenderer.invoke('modelBackend:getStatus'),
     retry: () => ipcRenderer.invoke('modelBackend:restart'),
+    retryStart: () => ipcRenderer.invoke('setup:retryBackend'),
     stop: () => ipcRenderer.invoke('modelBackend:stop'),
     onUpdated: (cb: (status: any) => void) => {
       const listener = (_event: any, payload: any) => cb(payload);
@@ -23,6 +24,7 @@ const villani = {
   assets: {
     getStatus: () => ipcRenderer.invoke('localAssets:getStatus'),
     retry: () => ipcRenderer.invoke('localAssets:retry'),
+    retryOnly: () => ipcRenderer.invoke('setup:retryAssets'),
     onUpdated: (cb: (status: any) => void) => {
       const listener = (_event: any, payload: any) => cb(payload);
       ipcRenderer.on('localAssets:statusUpdated', listener);
@@ -36,6 +38,11 @@ const villani = {
   onBackendStatusUpdated: (cb: (status: any) => void) => villani.backend.onUpdated(cb),
   onLocalAssetsUpdated: (cb: (status: any) => void) => villani.assets.onUpdated(cb),
   onChatUpdated: (cb: (messages: any[]) => void) => villani.chat.onUpdated(cb),
+  setup: {
+    retryAssets: () => ipcRenderer.invoke('setup:retryAssets'),
+    retryBackend: () => ipcRenderer.invoke('setup:retryBackend'),
+    retryAll: () => ipcRenderer.invoke('setup:retryAll')
+  },
   localAssetsRetry: () => ipcRenderer.invoke('localAssets:retry'),
   localAssetsSelectModel: () => ipcRenderer.invoke('localAssets:selectModelFile'),
   localAssetsSelectServer: () => ipcRenderer.invoke('localAssets:selectServerBinary')
