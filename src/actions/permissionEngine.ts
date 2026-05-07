@@ -18,7 +18,9 @@ export interface PermissionContext {
 }
 
 export function permissionFor(type:string){
-  if (type==='read_current_page'||type==='final_answer'||type==='ask_user'||type==='open_url') return 'allow';
+  if (type==='read_current_page'||type==='final_answer'||type==='ask_user'||type==='open_url'||type==='observe_desktop'||type==='take_screenshot') return 'allow';
+  if (type==='list_directory'||type==='read_file') return 'ask';
+  if (type==='open_path'||type==='write_file'||type==='run_shell_command') return 'ask';
   if(type==='create_note') return 'allow';
   return 'ask';
 }
@@ -58,33 +60,8 @@ export function evaluateActionPermission(type:string, params:Record<string,unkno
     const reasons = fillRiskReasons(f);
     return { requiresApproval: reasons.length > 0 || risk !== 'low', riskReasons: reasons, targetSummary: summarizeField(f), canExecute: true };
   }
-
-  return { requiresApproval: risk !== 'low' || permissionFor(type)==='ask', riskReasons: risk !== 'low' ? ['model_reported_risk'] : [], targetSummary: type, canExecute: true };
-}
-
-export function requiresApproval(type:string, params:Record<string,unknown>, risk:Risk, context: PermissionContext = {}){
-  return evaluateActionPermission(type, params, risk, context).requiresApproval;
-}
-
-function clickRiskReasons(c: ClickableCandidate): string[] {
-  const joined = `${c.label} ${c.text} ${c.href ?? ''} ${c.role}`;
-  const reasons: string[] = [];
-  if (c.isSubmitLike) reasons.push('submit_like');
-  if (c.isDangerous) reasons.push('dangerous_candidate');
-  if (CLICK_RISK_TOKENS.test(joined)) reasons.push('destructive_or_high_impact_wording');
-  if (c.href && SENSITIVE_NAVIGATION.test(c.href)) reasons.push('sensitive_external_navigation');
-  return [...new Set(reasons)];
-}
-function fillRiskReasons(f: FormFieldCandidate): string[] {
-  const joined = `${f.label} ${f.name ?? ''} ${f.placeholder ?? ''} ${f.type}`;
-  const reasons: string[] = [];
-  if (f.sensitive) reasons.push('field_marked_sensitive');
-  if (FILL_SENSITIVE_TOKENS.test(joined)) reasons.push('sensitive_field_pattern');
-  return [...new Set(reasons)];
-}
-function summarizeCandidate(c: ClickableCandidate) {
-  return `${c.role} "${c.label || c.text || '(unlabeled)'}"${c.href ? ` -> ${c.href}` : ''}`;
-}
-function summarizeField(f: FormFieldCandidate) {
-  return `${f.type} field "${f.label}"${f.name ? ` (${f.name})` : ''}`;
+  if(type==='fill_field' && typeof params.fieldId==='string' && /password|ssn|card|cvv|identity/i.test(params.fieldId)) return true;
+  if (type === 'write_file' || type === 'run_shell_command' || type === 'open_path') return true;
+  if (type === 'run_shell_command' && typeof params.command === 'string' && /(rm\s+-rf|del\s+\/f|format\s+|mkfs|shutdown|reboot)/i.test(params.command)) return true;
+  return risk !== 'low' || permissionFor(type)==='ask';
 }
