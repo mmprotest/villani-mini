@@ -1,45 +1,18 @@
-import path from 'node:path';
-import fs from 'node:fs';
-import os from 'node:os';
-import { downloadModel } from './modelDownloader';
-import { LlamaServerManager } from './LlamaServerManager';
-
-export const MODEL_NAME = 'Qwen3.5-4B-IQ4_XS.gguf';
-export const MODEL_URL = 'https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-IQ4_XS.gguf';
+import { LlamaServerManager, DEFAULT_LOCAL_MODEL_BACKEND_CONFIG } from './LlamaServerManager';
 
 export class ModelSetupManager {
   status = 'checking';
   progress = 0;
-  llama?: LlamaServerManager;
-  modelPath = path.join(os.homedir(), '.villani-mini', 'models', MODEL_NAME);
+  llama = new LlamaServerManager();
 
   async ensureReady(onProgress?: (s: string, p: number) => void) {
-    fs.mkdirSync(path.dirname(this.modelPath), { recursive: true });
-    this.status = 'checking';
-    onProgress?.(this.status, 0);
-
-    if (!fs.existsSync(this.modelPath)) {
-      this.status = 'downloading';
-      onProgress?.(this.status, 0);
-      await downloadModel(MODEL_URL, this.modelPath, (p) => {
-        this.progress = p;
-        onProgress?.(this.status, p);
-      });
-    }
-
-    this.status = 'verifying';
-    onProgress?.(this.status, 1);
-    if (fs.statSync(this.modelPath).size <= 0) throw new Error('model invalid');
-
     this.status = 'starting';
-    onProgress?.(this.status, 1);
-    this.llama = new LlamaServerManager(this.modelPath);
-    this.llama.start();
-    await this.llama.healthCheck();
-
+    onProgress?.(this.status, 0.2);
+    const out = await this.llama.ensureRunning(DEFAULT_LOCAL_MODEL_BACKEND_CONFIG);
+    if (out.status !== 'running' && out.status !== 'attached') throw new Error(out.lastError ?? 'model backend unavailable');
     this.status = 'ready';
     this.progress = 1;
     onProgress?.(this.status, 1);
-    return { status: this.status, modelPath: this.modelPath, progress: this.progress };
+    return { status: this.status, progress: this.progress };
   }
 }
