@@ -1,0 +1,1 @@
+export function permissionFor(type:string){ if(['open_url','click_candidate','fill_field','pause_for_user_login','create_note'].includes(type)) return 'ask'; if(type==='read_current_page') return 'allow'; if(type==='final_answer'||type==='ask_user') return 'allow'; return 'deny'; }

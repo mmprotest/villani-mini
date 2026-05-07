@@ -1,0 +1,1 @@
+import { expect,test } from 'vitest'; import { validateIds } from '../src/actions/actionValidator'; test('click_candidate rejects unknown candidate id',()=>expect(validateIds('click_candidate',{candidateId:'x'},['a'],[])).toBe(false)); test('fill_field rejects unknown field id',()=>expect(validateIds('fill_field',{fieldId:'x'},[],['a'])).toBe(false));

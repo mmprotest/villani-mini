@@ -1,0 +1,1 @@
+import { expect,test } from 'vitest'; import { permissionFor } from '../src/actions/permissionEngine'; test('permission engine returns ask for browser-changing actions',()=>expect(permissionFor('open_url')).toBe('ask'));

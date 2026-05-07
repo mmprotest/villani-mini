@@ -1,0 +1,1 @@
+export function scoreRisk(text:string, base:'low'|'medium'|'high'='low'){ const danger=['submit','buy','purchase','pay','delete','confirm','checkout']; if(danger.some(d=>text.toLowerCase().includes(d))) return 'high'; if(base==='low'&&text.toLowerCase().includes('account')) return 'medium'; return base; }

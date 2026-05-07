@@ -1,0 +1,1 @@
+import { expect,test } from 'vitest'; import { getDefaultModelManifest, validateModelFile } from '../src/model/modelManifest'; test('model manifest contains exact URL',()=>expect(getDefaultModelManifest().sourceUrl).toContain('Qwen3.5-4B-IQ4_XS.gguf')); test('model validation fails gracefully when missing',()=>expect(validateModelFile('/tmp/nope').ok).toBe(false));

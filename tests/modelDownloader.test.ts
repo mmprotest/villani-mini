@@ -1,0 +1,1 @@
+import { test,expect } from 'vitest'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { downloadModel } from '../src/model/modelDownloader'; test('writes final file', async()=>{ const d=path.join(os.tmpdir(),'m.gguf'); await downloadModel('',d); expect(fs.existsSync(d)).toBe(true); fs.unlinkSync(d);});
