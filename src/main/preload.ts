@@ -32,6 +32,20 @@ const villani = {
       return () => ipcRenderer.removeListener('modelBackend:statusUpdated', listener);
     }
   },
+
+  task: {
+    list: () => ipcRenderer.invoke('task:list'),
+    getState: (taskId: string) => ipcRenderer.invoke('task:getState', taskId)
+  },
+  browser: {
+    getStatus: () => ipcRenderer.invoke('browser:getStatus'),
+    openUrl: (url: string) => ipcRenderer.invoke('browser:openUrl', url),
+    readCurrentPage: () => ipcRenderer.invoke('browser:readCurrentPage')
+  },
+  config: {
+    getBackendConfig: () => ipcRenderer.invoke('modelBackend:getConfig'),
+    updateBackendConfig: (patch: any) => ipcRenderer.invoke('modelBackend:updateConfig', patch)
+  },
   assets: {
     getStatus: () => ipcRenderer.invoke('localAssets:getStatus'),
     retry: () => ipcRenderer.invoke('localAssets:retry'),
