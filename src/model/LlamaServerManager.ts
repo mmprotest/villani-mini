@@ -60,11 +60,27 @@ export class LlamaServerManager {
     const candidates = [
       config.llamaServerPath,
       process.env.VILLANI_MINI_LLAMA_SERVER_PATH,
-      path.join(process.resourcesPath ?? '', 'bin', process.platform==='win32'?'llama-server.exe':'llama-server'),
+      path.join(process.resourcesPath ?? '', 'llama-server', process.platform==='win32'?'llama-server.exe':'llama-server'),
+      path.join(process.cwd(), 'resources','llama-server', process.platform==='win32'?'llama-server.exe':'llama-server'),
+      path.join(process.cwd(), 'vendor', 'llama-server', process.platform==='win32'?'llama-server.exe':'llama-server'),
       path.join(process.cwd(), 'vendor', 'bin', process.platform==='win32'?'llama-server.exe':'llama-server'),
     ].filter(Boolean) as string[];
     const pathParts=(process.env.PATH??'').split(path.delimiter);
     for(const p of pathParts){ for(const n of ['llama-server','llama-server.exe','server','server.exe']) candidates.push(path.join(p,n)); }
+    return candidates.find((p)=>fs.existsSync(p));
+  }
+
+
+  discoverModel(config: LocalModelBackendConfig){
+    const candidates:string[] = [];
+    if (config.modelPath) candidates.push(config.modelPath);
+    const modelDirs = [
+      path.join(process.resourcesPath ?? '', 'models'),
+      path.join(process.cwd(), 'resources', 'models'),
+      path.join(process.cwd(), 'vendor', 'models')
+    ];
+    for (const d of modelDirs){ if(fs.existsSync(d)){ const gg=fs.readdirSync(d).filter((f)=>f.toLowerCase().endsWith('.gguf')).sort(); for(const g of gg) candidates.push(path.join(d,g)); } }
+    if (process.env.VILLANI_MINI_MODEL_PATH) candidates.push(process.env.VILLANI_MINI_MODEL_PATH);
     return candidates.find((p)=>fs.existsSync(p));
   }
 
@@ -74,8 +90,9 @@ export class LlamaServerManager {
     if (await this.checkHealthy(endpointUrl)) { this.attachedExternal = true; this.state.status = 'attached'; return this.getStatus(); }
     if (!config.autoStart || config.mode==='external_openai_compatible') { this.state.status='failed'; this.state.lastError='Endpoint is not healthy and auto-start is disabled'; return this.getStatus(); }
     const binary = this.discoverBinary(config); if(!binary){ this.state.status='not_configured'; this.state.missingBinary=true; this.state.lastError='Missing llama-server binary'; return this.getStatus(); }
-    if(!config.modelPath || !fs.existsSync(config.modelPath)){ this.state.status='not_configured'; this.state.missingModel=true; this.state.lastError='Missing GGUF model file'; return this.getStatus(); }
-    const args = ['--model', config.modelPath, '--host', config.host ?? '127.0.0.1', '--port', String(config.port ?? 34783), '--ctx-size', String(config.ctxSize ?? 8192)];
+    const modelPath = this.discoverModel(config);
+    if(!modelPath){ this.state.status='not_configured'; this.state.missingModel=true; this.state.lastError='Missing GGUF model file'; return this.getStatus(); }
+    const args = ['--model', modelPath, '--host', config.host ?? '127.0.0.1', '--port', String(config.port ?? 34783), '--ctx-size', String(config.ctxSize ?? 8192)];
     if(config.threads) args.push('--threads', String(config.threads));
     if(config.gpuLayers!=null) args.push('--gpu-layers', String(config.gpuLayers));
     if(config.extraArgs?.length) args.push(...config.extraArgs);

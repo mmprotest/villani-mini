@@ -86,7 +86,8 @@ app.whenReady().then(async () => {
   registerIpc(win);
   const cfg = modelBackendStore.getConfig();
   if (cfg.autoStart) {
-    await getModelBackendManager().ensureRunning(cfg);
+    const status = await getModelBackendManager().ensureRunning(cfg);
+    win.webContents.send('modelBackend:statusUpdated', status);
   }
 });
 
