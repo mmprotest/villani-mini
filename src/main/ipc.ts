@@ -10,6 +10,8 @@ export function registerIpc(win: BrowserWindow){
   ipcMain.handle('setup:start', ()=>setupStore.start((d)=>win.webContents.send('setup:updated', d)));
   ipcMain.handle('task:create', async (_,input)=> input?.goal ? agentController.createTask({goal:String(input.goal)}) : err('invalid_input','goal required'));
   ipcMain.handle('task:getState', async (_,taskId)=> taskId ? agentController.getTaskState(String(taskId)) : err('invalid_input','taskId required'));
+  ipcMain.handle('task:run', async (_,taskId,options)=> taskId ? agentController.runTask(String(taskId),options||{}) : err('invalid_input','taskId required'));
+  ipcMain.handle('task:answerUser', async (_,taskId,answer)=> taskId ? agentController.answerUserQuestion(String(taskId),String(answer||'')) : err('invalid_input','taskId required'));
   ipcMain.handle('task:step', async (_,taskId)=> taskId ? agentController.stepTask(String(taskId)) : err('invalid_input','taskId required'));
   ipcMain.handle('task:approveAction', async (_,taskId,proposalId)=> taskId&&proposalId ? agentController.approveAction(String(taskId),String(proposalId)) : err('invalid_input','taskId/proposalId required'));
   ipcMain.handle('task:rejectAction', async (_,taskId,proposalId,reason)=> taskId&&proposalId ? agentController.rejectAction(String(taskId),String(proposalId),reason?String(reason):undefined) : err('invalid_input','taskId/proposalId required'));

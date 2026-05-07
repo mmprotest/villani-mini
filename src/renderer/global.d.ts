@@ -1,7 +1,7 @@
 export {};
 declare global { interface Window { villani: {
   getSetupState: () => Promise<any>; startModelSetup: () => Promise<any>; listTasks:()=>Promise<any[]>;
-  createTask: (input:{goal:string})=>Promise<any>; getTaskState:(taskId:string)=>Promise<any>; stepTask:(taskId:string)=>Promise<any>;
+  createTask: (input:{goal:string})=>Promise<any>; getTaskState:(taskId:string)=>Promise<any>; runTask:(taskId:string, options?:any)=>Promise<any>; stepTask:(taskId:string)=>Promise<any>; answerUserQuestion:(taskId:string,answer:string)=>Promise<any>;
   approveAction:(taskId:string,proposalId:string)=>Promise<any>; rejectAction:(taskId:string,proposalId:string,reason?:string)=>Promise<any>;
   stopTask:(taskId:string)=>Promise<any>; attachFile:(taskId:string,filePathOrDescriptor:unknown)=>Promise<any>;
 };}}
