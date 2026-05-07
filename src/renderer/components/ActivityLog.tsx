@@ -13,6 +13,14 @@ type ActivityItem = {
   updatedAt?: string;
 };
 
+
+function labelForType(type?: string): string {
+  if (!type) return '';
+  if (['observe_desktop','take_screenshot','open_path','list_directory','read_file','write_file','run_shell_command'].includes(type)) return `[desktop] ${type}`;
+  if (['open_url','read_current_page','click_candidate','fill_field'].includes(type)) return `[browser] ${type}`;
+  return type;
+}
+
 function getTimestamp(item: ActivityItem): string {
   return item.at ?? item.createdAt ?? item.updatedAt ?? '';
 }
@@ -32,7 +40,7 @@ export default function ActivityLog({ items }: { items: ActivityItem[] }) {
           return (
             <li key={key}>
               {timestamp && <span>{timestamp} </span>}
-              {item.type && <span>{item.type} </span>}
+              {item.type && <span>{labelForType(item.type)} </span>}
               {item.status && <span>{item.status} </span>}
               {(item.title || item.summary) && <span>{item.title ?? item.summary} </span>}
               {item.observationSummary && <span>{item.observationSummary} </span>}
