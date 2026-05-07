@@ -4,8 +4,11 @@ const villani = {
   chat: {
     sendMessage: (text: string) => ipcRenderer.invoke('chat:sendMessage', text),
     getMessages: () => ipcRenderer.invoke('chat:getHistory'),
+    approve: (taskId: string, proposalId: string) => ipcRenderer.invoke('chat:approve', taskId, proposalId),
+    reject: (taskId: string, proposalId: string, reason?: string) => ipcRenderer.invoke('chat:reject', taskId, proposalId, reason),
+    answer: (taskId: string, answer: string) => ipcRenderer.invoke('chat:answer', taskId, answer),
     onUpdated: (cb: (messages: any[]) => void) => {
-      const listener = (_event: any, payload: any[]) => cb(payload);
+      const listener = (_event: unknown, payload: any[]) => cb(payload);
       ipcRenderer.on('chat:updated', listener);
       return () => ipcRenderer.removeListener('chat:updated', listener);
     }
@@ -23,7 +26,7 @@ const villani = {
     retry: () => ipcRenderer.invoke('modelBackend:restart'),
     stop: () => ipcRenderer.invoke('modelBackend:stop'),
     onUpdated: (cb: (status: any) => void) => {
-      const listener = (_event: any, payload: any) => cb(payload);
+      const listener = (_event: unknown, payload: any) => cb(payload);
       ipcRenderer.on('modelBackend:statusUpdated', listener);
       return () => ipcRenderer.removeListener('modelBackend:statusUpdated', listener);
     }
@@ -32,7 +35,7 @@ const villani = {
     getStatus: () => ipcRenderer.invoke('localAssets:getStatus'),
     retry: () => ipcRenderer.invoke('localAssets:retry'),
     onUpdated: (cb: (status: any) => void) => {
-      const listener = (_event: any, payload: any) => cb(payload);
+      const listener = (_event: unknown, payload: any) => cb(payload);
       ipcRenderer.on('localAssets:statusUpdated', listener);
       return () => ipcRenderer.removeListener('localAssets:statusUpdated', listener);
     }

@@ -5,18 +5,23 @@ import { ManagedBrowser } from '../browser/ManagedBrowser';
 import { actionSchema, type AgentAction } from '../actions/actionSchemas';
 import { scoreRisk } from '../actions/riskScoring';
 import { requiresApproval } from '../actions/permissionEngine';
-import { buildActionPrompt, buildContextPacket } from './contextPacket';
+import { buildActionPrompt, buildContextPacket, buildRepairPrompt } from './contextPacket';
 import { jsonRepair } from '../model/jsonRepair';
 import { TaskStore, taskStore } from '../store/taskStore';
 import { FileStore, fileStore } from '../store/fileStore';
 import type { ActionRecord } from '../shared/types';
 import { hashText } from '../utils/hashing';
+import { modelBackendStore } from '../store/modelBackendStore';
 
 export type RunBudget={maxTurns:number;maxActions:number;maxMs:number;maxNoProgressTurns:number;maxRepeatedFailures:number;maxConsecutiveReadOnlyTurns:number};
 const DEFAULT_BUDGET:RunBudget={maxTurns:20,maxActions:40,maxMs:180000,maxNoProgressTurns:4,maxRepeatedFailures:3,maxConsecutiveReadOnlyTurns:6};
 
 const normalize = (v: unknown): unknown => Array.isArray(v) ? v.map(normalize) : v && typeof v === 'object' ? Object.keys(v as Record<string, unknown>).sort().reduce<Record<string, unknown>>((acc, k) => { acc[k] = /(password|token|credential|value)/i.test(k) ? '[REDACTED]' : normalize((v as Record<string, unknown>)[k]); return acc; }, {}) : v;
 const normalizeObs = (s: string) => s.trim().replace(/\s+/g, ' ').slice(0, 280);
+const inferTargetIds = (params: Record<string, unknown>) => Object.entries(params)
+  .filter(([k, v]) => /id$/i.test(k) && typeof v === 'string')
+  .map(([, v]) => String(v))
+  .sort();
 
 export class AgentController {
   private listeners = new Set<(event: any) => void>();
@@ -45,6 +50,19 @@ export class AgentController {
     if (!out.ok && /missing|stale|unknown|timeout|failed|invalid|not found/.test(msg)) return true;
     return false;
   }
+  private actionSignature(action: any, out: ActionExecutionResult) {
+    const normalizedParams = normalize(action.params ?? {}) as Record<string, unknown>;
+    return hashText(JSON.stringify({
+      actionName: action.type,
+      params: normalizedParams,
+      targetIds: inferTargetIds(normalizedParams),
+      observationHash: hashText(normalizeObs(out.observationSummary || out.error || ''))
+    }));
+  }
+  private actionCoreSignature(action: any) {
+    const normalizedParams = normalize(action.params ?? {}) as Record<string, unknown>;
+    return hashText(JSON.stringify({ actionName: action.type, params: normalizedParams, targetIds: inferTargetIds(normalizedParams) }));
+  }
   async runTask(taskId:string, options?:Partial<RunBudget>){ const b={...DEFAULT_BUDGET,...options}; const start=Date.now(); let turns=0,actions=0,noProgress=0,repeatedFail=0,lastFp=''; this.store.updateTask(taskId,{status:'running'}); this.event(taskId,'task_started','Task run started');
     while(true){ if(Date.now()-start>b.maxMs || turns>=b.maxTurns || actions>=b.maxActions){ this.store.updateTask(taskId,{status:'blocked',finalAnswer:{summary:'Budget exhausted.',evidenceRefs:[],remainingSteps:['Refine objective and retry'],uncertainty:'high',blockedReason:'budget_exhausted'}}); this.event(taskId,'task_blocked','Budget exhausted'); return this.getTaskState(taskId);} 
       const s:any=await this.stepTask(taskId); turns++; actions=s.actions.length;
@@ -69,6 +87,12 @@ export class AgentController {
       }
     }
   }
+  private configureProvider(taskId: string){
+    const cfg = this.getBackendConfig();
+    if (typeof (this.provider as any).configure === 'function') (this.provider as any).configure(cfg.endpointUrl, cfg.modelName ?? 'local-model');
+    const safeEndpoint = cfg.endpointUrl.replace(/\/chat\/completions$/, '').replace(/\/+$/, '');
+    this.event(taskId,'model_backend_config',`Using model backend endpoint=${safeEndpoint} model=${cfg.modelName ?? 'local-model'} mode=${cfg.mode}`);
+  }
   async stepTask(taskId:string){ const task:any=this.store.getTask(taskId); if(!task) throw new Error('task_not_found');
     this.event(taskId,'model_call_started','Turn started');
     const compact=this.store.getCompactState(taskId) ?? createInitialCompactState(task.userGoal);
@@ -77,7 +101,35 @@ export class AgentController {
     const action=await this.generateActionWithRepair(packet); this.event(taskId,'model_action_proposed',action.type);
     return this.persistProposalAndMaybeExecute(taskId,action);
   }
-  private async generateActionWithRepair(packet:string){ const first=await this.provider.generateText(buildActionPrompt(packet)); try { return actionSchema.parse(jsonRepair(first)); } catch { return actionSchema.parse({type:'final_answer',params:{summary:'Model JSON invalid',evidenceRefs:[],remainingSteps:['Retry'],uncertainty:'high',blockedReason:'model_invalid_json'}}); } }
+  private normalizeActionCandidate(input: unknown): unknown {
+    if (!input || typeof input !== 'object') return input;
+    const raw:any = input;
+    const aliases: Record<string, string> = { open:'open_url', openurl:'open_url', read:'read_current_page', read_page:'read_current_page', click:'click_candidate', fill:'fill_field', ask:'ask_user', answer:'final_answer', final:'final_answer' };
+    const normalizedType = typeof raw.type === 'string' ? (aliases[raw.type.trim().toLowerCase()] ?? raw.type.trim()) : raw.type;
+    const out:any = { type: normalizedType, params: raw.params && typeof raw.params === 'object' ? { ...raw.params } : {}, meta: raw.meta && typeof raw.meta === 'object' ? { ...raw.meta } : undefined };
+    if (out.type === 'click_candidate' && typeof out.params.candidateId === 'number') out.params.candidateId = String(out.params.candidateId);
+    if (out.type === 'fill_field') {
+      if (typeof out.params.fieldId === 'number') out.params.fieldId = String(out.params.fieldId);
+      if (typeof out.params.value === 'number' || typeof out.params.value === 'boolean') out.params.value = String(out.params.value);
+    }
+    return out;
+  }
+  private parseNormalizeValidate(raw: string): AgentAction {
+    const parsed = this.normalizeActionCandidate(jsonRepair(raw));
+    return actionSchema.parse(parsed);
+  }
+  private async generateActionWithRepair(taskId:string, packet:string){
+    const first=await this.provider.generateText(buildActionPrompt(packet));
+    try { return this.parseNormalizeValidate(first); } catch (e) {
+      this.event(taskId,'model_invalid_output',`first_pass:${sanitize(String((e as Error).message))} raw=${sanitize(first).slice(0,500)}`);
+      const repairPrompt=buildRepairPrompt(packet, String((e as Error).message), first.slice(0,1500));
+      const second=await this.provider.generateText(repairPrompt);
+      try { return this.parseNormalizeValidate(second); } catch (e2) {
+        this.event(taskId,'model_invalid_output',`repair_pass:${sanitize(String((e2 as Error).message))} raw=${sanitize(second).slice(0,500)}`);
+        return actionSchema.parse({type:'ask_user',params:{question:'I could not produce a valid next action automatically. Do you want me to retry or provide a specific next step?'},meta:{reason:'model_invalid_json_repair_failed'}});
+      }
+    }
+  }
   private makeRecord(taskId:string, action:AgentAction): ActionRecord { const now=new Date().toISOString(); return {id:`p_${Date.now()}_${Math.random()}`,taskId,type:action.type,params:(action.params ?? {}) as Record<string, unknown>,title:action.meta?.title??action.type,reason:action.meta?.reason??'proposed',expectedOutcome:action.meta?.expectedOutcome??'progress',riskLevel:action.meta?.riskLevel??scoreRisk(JSON.stringify(action),'low'),requiresApproval:action.meta?.requiresApproval??requiresApproval(action.type,action.params,'low'),reversible:action.meta?.reversible??true,evidenceRefs:action.meta?.evidenceRefs??(Array.isArray((action.params as any).evidenceRefs)?(action.params as any).evidenceRefs:[]),createdAt:now,updatedAt:now,status:'proposed'}; }
   private async persistProposalAndMaybeExecute(taskId:string, action:AgentAction){ const proposal=this.makeRecord(taskId, action); this.store.appendAction(taskId,proposal); this.event(taskId,'model_action_proposed',proposal.type,proposal.id);
     if(proposal.requiresApproval && !['read_current_page','ask_user','final_answer'].includes(proposal.type)){ this.store.updateTask(taskId,{status:'waiting_for_approval',pendingProposalId:proposal.id}); this.event(taskId,'approval_required',proposal.type); return this.getTaskState(taskId);} return this.executeProposal(taskId,proposal.id);

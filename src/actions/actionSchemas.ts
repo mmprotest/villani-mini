@@ -14,6 +14,13 @@ export const actionSchema = z.discriminatedUnion('type',[
  z.object({type:z.literal('read_current_page'),params:z.object({}),meta:proposalMeta.optional()}),
  z.object({type:z.literal('click_candidate'),params:z.object({candidateId:z.string(),snapshotId:z.string().optional(),expectedSnapshotId:z.string().optional()}),meta:proposalMeta.optional()}),
  z.object({type:z.literal('fill_field'),params:z.object({fieldId:z.string(),value:z.string(),valueDescription:z.string().optional(),snapshotId:z.string().optional(),expectedSnapshotId:z.string().optional()}),meta:proposalMeta.optional()}),
+ z.object({type:z.literal('observe_desktop'),params:z.object({}).default({}),meta:proposalMeta.optional()}),
+ z.object({type:z.literal('take_screenshot'),params:z.object({displayId:z.string().optional()}).default({}),meta:proposalMeta.optional()}),
+ z.object({type:z.literal('open_path'),params:z.object({path:z.string().min(1)}),meta:proposalMeta.optional()}),
+ z.object({type:z.literal('list_directory'),params:z.object({path:z.string().min(1),limit:z.number().int().min(1).max(200).optional()}),meta:proposalMeta.optional()}),
+ z.object({type:z.literal('read_file'),params:z.object({path:z.string().min(1),maxBytes:z.number().int().min(128).max(65536).optional()}),meta:proposalMeta.optional()}),
+ z.object({type:z.literal('write_file'),params:z.object({path:z.string().min(1),content:z.string(),mode:z.enum(['overwrite','append']).optional()}),meta:proposalMeta.optional()}),
+ z.object({type:z.literal('run_shell_command'),params:z.object({command:z.string().min(1),cwd:z.string().optional(),timeoutMs:z.number().int().min(100).max(120000).optional()}),meta:proposalMeta.optional()}),
  z.object({type:z.literal('ask_user'),params:z.object({question:z.string(),options:z.array(z.string()).optional()}),meta:proposalMeta.optional()}),
  z.object({type:z.literal('final_answer'),params:finalAnswerPayloadSchema,meta:proposalMeta.optional()})
 ]);

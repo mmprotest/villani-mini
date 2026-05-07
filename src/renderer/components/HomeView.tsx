@@ -33,6 +33,8 @@ export default function HomeView() {
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [responseError, setResponseError] = useState('');
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
   const [debugOpen, setDebugOpen] = useState(false);
   const [view, setView] = useState<View>('Home');
   const [advanced, setAdvanced] = useState(false);
@@ -56,11 +58,41 @@ export default function HomeView() {
     const v = instruction.trim();
     if (!v || sending || !ready) return;
     setSending(true);
-    try { const out = await window.villani.chat.sendMessage(v); if (Array.isArray(out)) setMessages(out); }
+    try { const out = await window.villani.chat.sendMessage(v); if (Array.isArray(out)) setMessages(out); setResponseError(''); }
+    catch (e) { setResponseError(e instanceof Error ? e.message : String(e)); }
     finally { setSending(false); }
   };
 
   const quick = useMemo(() => ['Summarize this page', 'Open Downloads folder', 'Find recent invoices', 'Take a screenshot'], []);
+
+  const respondToApproval = async (message: any, approve: boolean) => {
+    if (!message?.taskId || !message?.proposalId) {
+      setResponseError('Approval request is missing task or proposal id.');
+      return;
+    }
+    try {
+      const out = approve
+        ? await window.villani.chat.approve(message.taskId, message.proposalId)
+        : await window.villani.chat.reject(message.taskId, message.proposalId, 'Rejected by user');
+      if (Array.isArray(out)) setMessages(out);
+      setResponseError('');
+    } catch (e) {
+      setResponseError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const submitUserAnswer = async (message: any) => {
+    const answer = (questionAnswers[message.id] || '').trim();
+    if (!message?.taskId || !answer) return;
+    try {
+      const out = await window.villani.chat.answer(message.taskId, answer);
+      if (Array.isArray(out)) setMessages(out);
+      setQuestionAnswers((prev) => ({ ...prev, [message.id]: '' }));
+      setResponseError('');
+    } catch (e) {
+      setResponseError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return <div className='app-shell'>
     <aside className='sidebar'>
