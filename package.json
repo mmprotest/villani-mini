@@ -15,7 +15,7 @@
     "build:main": "tsc -p tsconfig.main.json",
     "dev:renderer": "vite --host 127.0.0.1",
     "dev:main": "node scripts/write-dist-package-json.mjs && tsc -p tsconfig.main.json --watch --preserveWatchOutput",
-    "dev:electron": "wait-on tcp:5173 dist/main/main.js dist/package.json && electron ."
+    "dev:electron": "wait-on tcp:5173 dist/main/main.js dist/package.json && node scripts/start-electron-dev.mjs"
   },
   "dependencies": {
     "docx": "^9.5.1",

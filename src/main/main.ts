@@ -1,11 +1,47 @@
 import { app, BrowserWindow } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { getModelBackendManager, registerIpc } from './ipc';
 import { modelBackendStore } from '../store/modelBackendStore';
 
-const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173';
+const isDev = process.env.VILLANI_MINI_DEV === '1';
+const rendererUrl = process.env.ELECTRON_RENDERER_URL ?? 'http://127.0.0.1:5173';
 
 let win: BrowserWindow;
+
+async function loadRenderer(window: BrowserWindow): Promise<void> {
+  const productionIndexPath = path.join(__dirname, '../renderer/index.html');
+  const productionIndexExists = fs.existsSync(productionIndexPath);
+
+  try {
+    if (isDev) {
+      await window.loadURL(rendererUrl);
+      return;
+    }
+
+    if (!productionIndexExists) {
+      console.error('[renderer-load] Missing production renderer HTML at:', productionIndexPath);
+      console.error('[renderer-load] Context:', {
+        isDev,
+        rendererUrl,
+        productionIndexPath,
+        productionIndexExists,
+      });
+      return;
+    }
+
+    await window.loadFile(productionIndexPath);
+  } catch (error) {
+    console.error('[renderer-load] Failed to load renderer.', {
+      isDev,
+      rendererUrl,
+      productionIndexPath,
+      productionIndexExists,
+      error,
+    });
+    throw error;
+  }
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -16,12 +52,7 @@ function createWindow() {
     },
   });
 
-  if (!app.isPackaged) {
-    void win.loadURL(DEV_SERVER_URL);
-    return;
-  }
-
-  void win.loadFile(path.join(__dirname, '../renderer/index.html'));
+  void loadRenderer(win);
 }
 
 app.whenReady().then(async () => {
