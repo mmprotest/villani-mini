@@ -1,9 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { textExtract } from './textExtract';
-import { docxExtract } from './docxExtract';
-import { pdfExtract } from './pdfExtract';
-import { imageOcr } from './imageOcr';
 import { fileSummaries } from './fileSummaries';
 
 export function ingestTextLike(filePath: string): string {
@@ -18,9 +15,18 @@ export async function ingestFile(filePath: string){
   let errorMessage: string | undefined;
   try {
     if (ext === '.txt' || ext === '.md') extractedText = ingestTextLike(filePath);
-    else if (ext === '.docx') extractedText = await docxExtract(filePath);
-    else if (ext === '.pdf') extractedText = await pdfExtract(filePath);
-    else if (['.png','.jpg','.jpeg'].includes(ext)) extractedText = await imageOcr();
+    else if (ext === '.docx') {
+      const { docxExtract } = await import('./docxExtract');
+      extractedText = await docxExtract(filePath);
+    }
+    else if (ext === '.pdf') {
+      const { pdfExtract } = await import('./pdfExtract');
+      extractedText = await pdfExtract(filePath);
+    }
+    else if (['.png','.jpg','.jpeg'].includes(ext)) {
+      const { imageOcr } = await import('./imageOcr');
+      extractedText = await imageOcr();
+    }
     else throw new Error(`Unsupported extension: ${ext}`);
     if (!extractedText) throw new Error('Extraction returned empty content');
   } catch (e:any) {
