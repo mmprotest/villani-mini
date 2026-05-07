@@ -6,4 +6,10 @@ declare global { interface Window { villani: {
   createTask: (input:{goal:string})=>Promise<any>; getTaskState:(taskId:string)=>Promise<any>; runTask:(taskId:string, options?:any)=>Promise<any>; stepTask:(taskId:string)=>Promise<any>; answerUserQuestion:(taskId:string,answer:string)=>Promise<any>;
   approveAction:(taskId:string,proposalId:string)=>Promise<any>; rejectAction:(taskId:string,proposalId:string,reason?:string)=>Promise<any>;
   stopTask:(taskId:string)=>Promise<any>; attachFile:(taskId:string,filePathOrDescriptor:unknown)=>Promise<any>;
+
+  sendMessage:(text:string)=>Promise<any>; getChatHistory:()=>Promise<any[]>;
+  approveChatAction:(taskId:string,proposalId:string)=>Promise<any>; rejectChatAction:(taskId:string,proposalId:string,reason?:string)=>Promise<any>;
+  answerChatQuestion:(taskId:string,answer:string)=>Promise<any>;
+  onBackendStatusUpdated:(cb:(s:any)=>void)=>void; onChatUpdated:(cb:(m:any[])=>void)=>void;
+
 };}}

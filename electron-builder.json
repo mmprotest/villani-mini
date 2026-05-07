@@ -7,5 +7,9 @@
     "package.json",
     "!**/*.test.*",
     "!tests/**/*"
+  ],
+  "extraResources": [
+    { "from": "vendor/models", "to": "models", "filter": ["**/*.gguf"] },
+    { "from": "vendor/llama-server", "to": "llama-server", "filter": ["**/*"] }
   ]
 }
