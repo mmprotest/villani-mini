@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
-    "build": "npm run build:renderer && npm run build:main && node scripts/check-electron-build.mjs",
+    "build": "npm run build:renderer && npm run build:main && node scripts/write-dist-package-json.mjs && node scripts/check-electron-build.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "electron .",
@@ -14,8 +14,8 @@
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "dev:renderer": "vite --host 127.0.0.1",
-    "dev:main": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",
-    "dev:electron": "wait-on tcp:5173 dist/main/main.js && electron ."
+    "dev:main": "node scripts/write-dist-package-json.mjs && tsc -p tsconfig.main.json --watch --preserveWatchOutput",
+    "dev:electron": "wait-on tcp:5173 dist/main/main.js dist/package.json && electron ."
   },
   "dependencies": {
     "docx": "^9.5.1",

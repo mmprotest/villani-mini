@@ -6,6 +6,7 @@ const requiredFiles = [
   'dist/main/main.js',
   'dist/main/preload.js',
   'dist/renderer/index.html',
+  'dist/package.json',
 ];
 
 for (const relPath of requiredFiles) {
@@ -13,6 +14,12 @@ for (const relPath of requiredFiles) {
   if (!fs.existsSync(absPath)) {
     throw new Error(`Build preflight failed: missing ${relPath}`);
   }
+}
+
+const distPkgPath = path.join(root, 'dist/package.json');
+const distPkg = JSON.parse(fs.readFileSync(distPkgPath, 'utf8'));
+if (distPkg.type !== 'commonjs') {
+  throw new Error('Build preflight failed: dist/package.json must contain {"type":"commonjs"}');
 }
 
 const pkgPath = path.join(root, 'package.json');
@@ -25,8 +32,5 @@ const mainAbsPath = path.join(root, pkg.main);
 if (!fs.existsSync(mainAbsPath)) {
   throw new Error(`Build preflight failed: package.json main points to missing file: ${pkg.main}`);
 }
-
-const distMainPkgPath = path.join(root, 'dist/main/package.json');
-fs.writeFileSync(distMainPkgPath, JSON.stringify({ type: 'commonjs' }, null, 2) + '\n');
 
 console.log('Electron build preflight passed.');
