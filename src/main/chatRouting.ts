@@ -4,11 +4,11 @@ export type ChatRoute =
   | { kind: 'clarify'; question: string };
 
 const taskPatterns = [
-  'open','go to','browse','find','search','read this page','summarize this website','click','fill','compare','download','create a note','inspect','check','look up','use the browser','use the app','do this','book','buy','send','submit'
+  'open','go to','browse','find','search','read this page','summarize this website','summarize this page','click','fill','compare','download','create a note','inspect','check','look up','use the browser','use the app','do this','book','buy','send','submit','take screenshot','open downloads folder','find recent invoices'
 ];
 
 const chatPatterns = [
-  'hello','hi ','hey','what do you think','how does this work','brainstorm','advice','explain'
+  'hello','hi ','hey','what do you think','how does this work','brainstorm','advice','explain','what can you do'
 ];
 
 export function routeChatIntent(message: string): ChatRoute {
