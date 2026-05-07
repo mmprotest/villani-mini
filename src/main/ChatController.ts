@@ -27,9 +27,9 @@ export class ChatController {
     }
     const created:any = await agentController.createTask({ goal: route.taskInstruction });
     const taskId = created.task.id;
-    this.push({ id:id(), type:'task_progress', text:'Working on it...', taskId });
-    const result:any = await agentController.runTask(taskId);
-    return this.appendTaskResult(result);
+    const out = this.push({ id:id(), type:'task_progress', text:'Working on it...', taskId });
+    void agentController.runTask(taskId).then((result:any)=>this.appendTaskResult(result)).catch(()=>this.push({ id:id(), type:'error', text:'Task failed due to an internal error.', taskId }));
+    return out;
   }
 
   appendTaskResult(state:any){

@@ -16,5 +16,6 @@ declare global { interface Window { villani: {
   chat:{sendMessage:(text:string)=>Promise<any>;getMessages:()=>Promise<any[]>;onUpdated:(cb:(m:any[])=>void)=>(()=>void)|void;};
   backend:{getStatus:()=>Promise<any>;retry:()=>Promise<any>;stop:()=>Promise<any>;onUpdated:(cb:(s:any)=>void)=>(()=>void)|void;};
   assets:{getStatus:()=>Promise<any>;retry:()=>Promise<any>;onUpdated:(cb:(s:any)=>void)=>(()=>void)|void;};
+  task:{getState:(taskId:string)=>Promise<any>;onEvent:(cb:(e:any)=>void)=>(()=>void)|void;};
 
 };}}

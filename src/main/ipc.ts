@@ -16,6 +16,10 @@ export function getModelBackendManager(){ return manager; }
 export function getAssetManager(){ return assets; }
 
 export function registerIpc(win: BrowserWindow){
+  agentController.onEvent((event)=>{
+    win.webContents.send('task:event', event);
+    win.webContents.send('chat:updated', chatController.getHistory());
+  });
   assets.onUpdate((s)=>win.webContents.send('localAssets:statusUpdated', s));
   ipcMain.handle('localAssets:getStatus', ()=>assets.getStatus());
   ipcMain.handle('localAssets:ensureReady', ()=>assets.ensureAssetsReady());

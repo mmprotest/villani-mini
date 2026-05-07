@@ -10,6 +10,14 @@ const villani = {
       return () => ipcRenderer.removeListener('chat:updated', listener);
     }
   },
+  task: {
+    getState: (taskId: string) => ipcRenderer.invoke('task:getState', taskId),
+    onEvent: (cb: (event: any) => void) => {
+      const listener = (_event: any, payload: any) => cb(payload);
+      ipcRenderer.on('task:event', listener);
+      return () => ipcRenderer.removeListener('task:event', listener);
+    }
+  },
   backend: {
     getStatus: () => ipcRenderer.invoke('modelBackend:getStatus'),
     retry: () => ipcRenderer.invoke('modelBackend:restart'),
@@ -36,6 +44,11 @@ const villani = {
   onBackendStatusUpdated: (cb: (status: any) => void) => villani.backend.onUpdated(cb),
   onLocalAssetsUpdated: (cb: (status: any) => void) => villani.assets.onUpdated(cb),
   onChatUpdated: (cb: (messages: any[]) => void) => villani.chat.onUpdated(cb),
+  getTaskState: (taskId: string) => ipcRenderer.invoke('task:getState', taskId),
+  runTask: (taskId: string, options?: any) => ipcRenderer.invoke('task:run', taskId, options),
+  stepTask: (taskId: string) => ipcRenderer.invoke('task:step', taskId),
+  stopTask: (taskId: string) => ipcRenderer.invoke('task:stop', taskId),
+  answerUserQuestion: (taskId: string, answer: string) => ipcRenderer.invoke('chat:answer', taskId, answer),
   localAssetsRetry: () => ipcRenderer.invoke('localAssets:retry'),
   localAssetsSelectModel: () => ipcRenderer.invoke('localAssets:selectModelFile'),
   localAssetsSelectServer: () => ipcRenderer.invoke('localAssets:selectServerBinary')
