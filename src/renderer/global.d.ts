@@ -8,7 +8,7 @@ declare global { interface Window { villani: {
   stopTask:(taskId:string)=>Promise<any>; attachFile:(taskId:string,filePathOrDescriptor:unknown)=>Promise<any>;
 
   sendMessage:(text:string)=>Promise<any>; getChatHistory:()=>Promise<any[]>;
-  localAssetsGetStatus:()=>Promise<any>; localAssetsEnsureReady:()=>Promise<any>; localAssetsRetry:()=>Promise<any>; localAssetsSelectModel:()=>Promise<any>; localAssetsSelectServer:()=>Promise<any>;
+  localAssetsGetStatus:()=>Promise<any>; localAssetsEnsureReady:()=>Promise<any>; localAssetsRetry:()=>Promise<any>; localAssetsSelectModel:()=>Promise<any>; localAssetsSelectServer:()=>Promise<any>; localAssetsGetDiagnostics:()=>Promise<any>;
   approveChatAction:(taskId:string,proposalId:string)=>Promise<any>; rejectChatAction:(taskId:string,proposalId:string,reason?:string)=>Promise<any>;
   answerChatQuestion:(taskId:string,answer:string)=>Promise<any>;
   onBackendStatusUpdated:(cb:(s:any)=>void)=>(()=>void)|void; onChatUpdated:(cb:(m:any[])=>void)=>(()=>void)|void; onLocalAssetsUpdated:(cb:(s:any)=>void)=>(()=>void)|void;

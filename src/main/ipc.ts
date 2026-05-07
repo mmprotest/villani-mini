@@ -23,6 +23,7 @@ export function registerIpc(win: BrowserWindow){
   ipcMain.handle('localAssets:cancelDownload', ()=>assets.cancelDownload());
   ipcMain.handle('localAssets:selectModelFile', ()=>assets.selectModelFile(win));
   ipcMain.handle('localAssets:selectServerBinary', ()=>assets.selectServerBinary(win));
+  ipcMain.handle('localAssets:getDiagnostics', ()=>assets.getDiagnostics());
 
   ipcMain.handle('modelBackend:getStatus', ()=>manager.getStatus());
   ipcMain.handle('modelBackend:getLogs', ()=>manager.getLogs());
