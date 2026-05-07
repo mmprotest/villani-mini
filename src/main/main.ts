@@ -12,10 +12,16 @@ function createWindow(){ win = new BrowserWindow({ width: 1200, height: 850, web
 async function bootstrapLocalBackend(window: BrowserWindow){
   window.webContents.send('localAssets:statusUpdated', getAssetManager().getStatus());
   window.webContents.send('modelBackend:statusUpdated', getModelBackendManager().getStatus());
+  const currentCfg = modelBackendStore.getConfig();
+  if (currentCfg.mode === 'external_openai_compatible') {
+    const status = await getModelBackendManager().ensureRunning(currentCfg);
+    window.webContents.send('modelBackend:statusUpdated', status);
+    return;
+  }
   const assets = await getAssetManager().ensureAssetsReady();
   window.webContents.send('localAssets:statusUpdated', assets);
   if (assets.state !== 'ready' || !assets.modelPath || !assets.llamaServerPath) return;
-  const cfg = { ...modelBackendStore.getConfig(), modelPath: assets.modelPath, llamaServerPath: assets.llamaServerPath };
+  const cfg = { ...currentCfg, modelPath: assets.modelPath, llamaServerPath: assets.llamaServerPath };
   modelBackendStore.saveConfig(cfg);
   const status = await getModelBackendManager().ensureRunning(cfg);
   window.webContents.send('modelBackend:statusUpdated', status);

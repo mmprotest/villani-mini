@@ -52,6 +52,9 @@ export default function HomeView() {
 
   const ready = ['running', 'attached'].includes(backend?.status) && assets?.state === 'ready';
   const setupFailed = assets?.state === 'failed' || backend?.status === 'failed';
+  const assetFailed = assets?.state === 'failed';
+  const backendFailed = backend?.status === 'failed' && assets?.state === 'ready';
+  const providerFailed = backend?.status === 'failed' && backend?.processMode === 'attached';
   const statusLabel = ready ? 'Agent Online' : setupFailed ? 'Agent Offline' : 'Setting up';
 
   const send = async (instruction: string) => {
@@ -107,6 +110,19 @@ export default function HomeView() {
       {view === 'Home' && <>
         <h1 className='hero'>Villani mini<br/><span>Your desktop agent.</span></h1>
         <p className='subtle'>I can see, click, type, and help you get things done.</p>
+
+        {!ready && <div className='panel'>
+          <h3>{setupFailed ? 'Setup failed' : 'Setting up local backend'}</h3>
+          <p className='subtle'>{assets?.lastError || backend?.lastError || 'Preparing local model and llama-server...'}</p>
+          {setupFailed && <div className='row-actions'>
+            {assetFailed && <button onClick={() => window.villani.setup.retryAssets()}>Retry assets</button>}
+            {backendFailed && <button onClick={() => window.villani.setup.retryBackend()}>Retry backend</button>}
+            {providerFailed && <button onClick={() => window.villani.setup.retryBackend()}>Retry provider health check</button>}
+            <button onClick={() => window.villani.setup.retryAll()}>Retry full setup</button>
+            <button className='ghost' onClick={() => setAdvanced((v) => !v)}>Advanced manual setup</button>
+          </div>}
+          {setupFailed && advanced && <div className='row-actions'><button onClick={() => window.villani.localAssetsSelectModel?.()}>Select model file</button><button onClick={() => window.villani.localAssetsSelectServer?.()}>Select llama-server binary</button></div>}
+        </div>}
 
         <form className='command-box' onSubmit={(e) => { e.preventDefault(); void send(text); setText(''); }}>
           <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder='What would you like me to do?' disabled={!ready || sending} />

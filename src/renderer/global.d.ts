@@ -3,9 +3,9 @@ export {};
 type Unsubscribe = (() => void) | void;
 
   chat:{sendMessage:(text:string)=>Promise<any>;getMessages:()=>Promise<any[]>;onUpdated:(cb:(m:any[])=>void)=>(()=>void)|void;};
-  backend:{getStatus:()=>Promise<any>;retry:()=>Promise<any>;stop:()=>Promise<any>;onUpdated:(cb:(s:any)=>void)=>(()=>void)|void;};
-  assets:{getStatus:()=>Promise<any>;retry:()=>Promise<any>;onUpdated:(cb:(s:any)=>void)=>(()=>void)|void;};
-  task:{getState:(taskId:string)=>Promise<any>;onEvent:(cb:(e:any)=>void)=>(()=>void)|void;};
+  backend:{getStatus:()=>Promise<any>;retry:()=>Promise<any>;retryStart:()=>Promise<any>;stop:()=>Promise<any>;onUpdated:(cb:(s:any)=>void)=>(()=>void)|void;};
+  assets:{getStatus:()=>Promise<any>;retry:()=>Promise<any>;retryOnly:()=>Promise<any>;onUpdated:(cb:(s:any)=>void)=>(()=>void)|void;};
+  setup:{retryAssets:()=>Promise<any>;retryBackend:()=>Promise<any>;retryAll:()=>Promise<any>;};
 
 declare global {
   interface Window {

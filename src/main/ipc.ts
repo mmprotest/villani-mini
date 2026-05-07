@@ -12,6 +12,26 @@ const assets = new LocalAssetManager();
 const err = (code:string,message:string)=>({ok:false,error:{code,message}});
 const emit = (win: BrowserWindow)=>win.webContents.send('modelBackend:statusUpdated', manager.getStatus());
 
+async function retryBackendStart(win: BrowserWindow){
+  const cfg = modelBackendStore.getConfig();
+  if (cfg.mode !== 'external_openai_compatible') await manager.stop();
+  const out = await manager.ensureRunning(cfg);
+  emit(win);
+  return out;
+}
+
+async function retryFullSetup(win: BrowserWindow){
+  const st = await assets.ensureAssetsReady();
+  win.webContents.send('localAssets:statusUpdated', st);
+  if (st.state !== 'ready' || !st.modelPath || !st.llamaServerPath) return { assets: st, backend: manager.getStatus() };
+  const cfg={...modelBackendStore.getConfig(), modelPath: st.modelPath, llamaServerPath: st.llamaServerPath};
+  modelBackendStore.saveConfig(cfg);
+  if (cfg.mode !== 'external_openai_compatible') await manager.stop();
+  const backend = await manager.ensureRunning(cfg);
+  emit(win);
+  return { assets: st, backend };
+}
+
 export function getModelBackendManager(){ return manager; }
 export function getAssetManager(){ return assets; }
 
@@ -31,9 +51,12 @@ export function registerIpc(win: BrowserWindow){
 
   ipcMain.handle('modelBackend:getStatus', ()=>manager.getStatus());
   ipcMain.handle('modelBackend:getLogs', ()=>manager.getLogs());
+  ipcMain.handle('setup:retryAssets', ()=>assets.ensureAssetsReady());
+  ipcMain.handle('setup:retryBackend', ()=>retryBackendStart(win));
+  ipcMain.handle('setup:retryAll', ()=>retryFullSetup(win));
   ipcMain.handle('modelBackend:start', async ()=>{ const st=await assets.ensureAssetsReady(); const cfg={...modelBackendStore.getConfig(), modelPath: st.modelPath, llamaServerPath: st.llamaServerPath}; modelBackendStore.saveConfig(cfg); const out=await manager.ensureRunning(cfg); emit(win); return out; });
   ipcMain.handle('modelBackend:stop', async ()=>{ const out=await manager.stop(); emit(win); return out; });
-  ipcMain.handle('modelBackend:restart', async ()=>{ await manager.stop(); const out=await manager.ensureRunning(modelBackendStore.getConfig()); emit(win); return out; });
+  ipcMain.handle('modelBackend:restart', async ()=>retryBackendStart(win));
   ipcMain.handle('modelBackend:updateConfig', async (_,patch:Partial<LocalModelBackendConfig>)=>{ const cfg={...modelBackendStore.getConfig(),...patch}; modelBackendStore.saveConfig(cfg); return cfg; });
 
   ipcMain.handle('chat:getHistory', ()=>chatController.getHistory());
