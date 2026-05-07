@@ -95,6 +95,25 @@ export default function HomeView() {
   const [view, setView] = useState<View>('Home');
   const [advanced, setAdvanced] = useState(false);
 
+  const [responseError, setResponseError] = useState('');
+  const [setupRetryError, setSetupRetryError] = useState('');
+  const [taskEvents, setTaskEvents] = useState<Record<string, TaskEvent[]>>({});
+  const [expandedTask, setExpandedTask] = useState<string | null>(null);
+  const assetFailed = assets?.state === 'failed';
+  const backendFailed = backend?.status === 'failed';
+
+  const retrySetup = async (target: 'assets' | 'backend' | 'all') => {
+    setSetupRetryError('');
+    try {
+      if (target === 'assets') await window.villani.setup.retryAssets();
+      else if (target === 'backend') await window.villani.setup.retryBackend();
+      else await window.villani.setup.retryAll();
+      await Promise.all([window.villani.assets.getStatus().then(setAssets), window.villani.backend.getStatus().then(setBackend)]);
+    } catch (e: any) {
+      setSetupRetryError(String(e?.message || e));
+    }
+  };
+
   const loadTasks = async () => { setTaskError(''); try { setTasks(await window.villani.task.list()); } catch (e: any) { setTaskError(String(e?.message || e)); } };
   const loadBrowser = async () => { try { setBrowserInfo(await window.villani.browser.getStatus()); } catch (e: any) { setBrowserError(String(e?.message || e)); } };
   const loadConfig = async () => { try { const c = await window.villani.config.getBackendConfig(); setCfg(c); setCfgEdit({ endpointUrl: c.endpointUrl || '', modelName: c.modelName || '', mode: c.mode || '' }); } catch {} };
@@ -128,6 +147,7 @@ export default function HomeView() {
     if (!v || sending || !ready) return;
     setSending(true);
     try { const out = await window.villani.chat.sendMessage(v); if (Array.isArray(out)) setMessages(out); }
+    catch (e:any) { setResponseError(String(e?.message || e)); }
     finally { setSending(false); void loadTasks(); }
   };
   const openTask = async (id: string) => { setTaskLoading(true); setTaskError(''); try { setSelectedTask(await window.villani.task.getState(id)); } catch (e:any) { setTaskError(String(e?.message || e)); } finally { setTaskLoading(false); } };
