@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { formatTraceRow, redactSensitive } from './taskDebug';
 
 type View = 'Home' | 'Activities' | 'Browser Control' | 'Commands' | 'History' | 'Settings';
 type Task = { id: string; status: string; createdAt?: string; finalAnswer?: { blockedReason?: string; summary?: string }; updatedAt?: string; userGoal?: string };
@@ -92,16 +91,9 @@ export default function HomeView() {
   const [cfgEdit, setCfgEdit] = useState<any>({ endpointUrl: '', modelName: '', mode: '' });
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
-  const [responseError, setResponseError] = useState('');
-  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
-  const [messageBusy, setMessageBusy] = useState<Record<string, boolean>>({});
-  const [messageErrors, setMessageErrors] = useState<Record<string, string>>({});
-  const [proposalDetailsByMessage, setProposalDetailsByMessage] = useState<Record<string, ProposalDetails>>({});
   const [debugOpen, setDebugOpen] = useState(false);
   const [view, setView] = useState<View>('Home');
   const [advanced, setAdvanced] = useState(false);
-  const [expandedTask, setExpandedTask] = useState<string | null>(null);
-  const [taskEvents, setTaskEvents] = useState<Record<string, TaskEvent[]>>({});
 
   const loadTasks = async () => { setTaskError(''); try { setTasks(await window.villani.task.list()); } catch (e: any) { setTaskError(String(e?.message || e)); } };
   const loadBrowser = async () => { try { setBrowserInfo(await window.villani.browser.getStatus()); } catch (e: any) { setBrowserError(String(e?.message || e)); } };
@@ -129,9 +121,6 @@ export default function HomeView() {
 
   const ready = ['running', 'attached'].includes(backend?.status) && assets?.state === 'ready';
   const setupFailed = assets?.state === 'failed' || backend?.status === 'failed';
-  const assetFailed = assets?.state === 'failed';
-  const backendFailed = backend?.status === 'failed' && assets?.state === 'ready';
-  const providerFailed = backend?.status === 'failed' && backend?.processMode === 'attached';
   const statusLabel = ready ? 'Agent Online' : setupFailed ? 'Agent Offline' : 'Setting up';
 
   const send = async (instruction: string) => {
@@ -145,107 +134,7 @@ export default function HomeView() {
 
   const quick = useMemo(() => ['Summarize this page', 'Open Downloads folder', 'Find recent invoices', 'Take a screenshot'], []);
 
-  useEffect(() => {
-    const loadProposalDetails = async () => {
-      const approvalMessages = messages.filter((m) => m.type === 'approval_request' && m.taskId && m.proposalId);
-      for (const msg of approvalMessages) {
-        if (proposalDetailsByMessage[msg.id]) continue;
-        try {
-          const state = await window.villani.task.getState(msg.taskId!);
-          const action = (state?.actions || []).find((a: any) => a.id === msg.proposalId) || state?.pendingProposal;
-          if (action) {
-            setProposalDetailsByMessage((prev) => ({ ...prev, [msg.id]: action }));
-          }
-        } catch {}
-      }
-    };
-    void loadProposalDetails();
-  }, [messages, proposalDetailsByMessage]);
 
-  const respondToApproval = async (message: ChatMessage, approve: boolean) => {
-    if (!message?.taskId || !message?.proposalId) {
-      setMessageErrors((prev) => ({ ...prev, [message.id]: 'Missing approval metadata (taskId/proposalId).' }));
-      return;
-    }
-    setMessageBusy((prev) => ({ ...prev, [message.id]: true }));
-    try {
-      const out = approve
-        ? await window.villani.chat.approve(message.taskId, message.proposalId)
-        : await window.villani.chat.reject(message.taskId, message.proposalId, 'Rejected by user');
-      if (Array.isArray(out)) setMessages(out);
-      setMessageErrors((prev) => ({ ...prev, [message.id]: '' }));
-    } catch (e) {
-      setMessageErrors((prev) => ({ ...prev, [message.id]: e instanceof Error ? e.message : String(e) }));
-    } finally {
-      setMessageBusy((prev) => ({ ...prev, [message.id]: false }));
-    }
-  };
-
-  const retrySetup = async (mode: 'assets' | 'backend' | 'all') => {
-    setSetupRetryError('');
-    try {
-      if (mode === 'assets') await window.villani.setup.retryAssets();
-      if (mode === 'backend') await window.villani.setup.retryBackend();
-      if (mode === 'all') await window.villani.setup.retryAll();
-    } catch (e) {
-      setSetupRetryError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const submitUserAnswer = async (message: any) => {
-    const answer = (questionAnswers[message.id] || '').trim();
-    if (!message?.taskId) {
-      setMessageErrors((prev) => ({ ...prev, [message.id]: 'Missing question metadata (taskId).' }));
-      return;
-    }
-    if (!answer) return;
-    setMessageBusy((prev) => ({ ...prev, [message.id]: true }));
-    try {
-      const out = await window.villani.chat.answer(message.taskId, answer);
-      if (Array.isArray(out)) setMessages(out);
-      setQuestionAnswers((prev) => ({ ...prev, [message.id]: '' }));
-      setMessageErrors((prev) => ({ ...prev, [message.id]: '' }));
-    } catch (e) {
-      setMessageErrors((prev) => ({ ...prev, [message.id]: e instanceof Error ? e.message : String(e) }));
-    } finally {
-      setMessageBusy((prev) => ({ ...prev, [message.id]: false }));
-    }
-  };
-
-  const renderMessage = (m: ChatMessage) => {
-    if (m.type === 'approval_request') {
-      const missing = !m.taskId || !m.proposalId;
-      const details = proposalDetailsByMessage[m.id];
-      return <div key={m.id} className='msg card-approval'>
-        <div><b>Approval required</b></div>
-        <div>{details?.title || m.text}</div>
-        <div className='subtle'>Action: {details?.type || 'unknown'} · Task: {m.taskId || 'n/a'}</div>
-        {details?.reason && <div className='subtle'>Risk reason: {details.reason}</div>}
-        {details?.params && <pre>{JSON.stringify(redactSensitive(details.params), null, 2)}</pre>}
-        {missing && <div className='subtle'>Missing approval metadata (taskId/proposalId).</div>}
-        {messageErrors[m.id] && <div className='msg msg-error'>{messageErrors[m.id]}</div>}
-        <div className='row-actions'>
-          <button disabled={missing || !!messageBusy[m.id]} onClick={() => void respondToApproval(m, true)}>Approve</button>
-          <button disabled={missing || !!messageBusy[m.id]} onClick={() => void respondToApproval(m, false)}>Reject</button>
-        </div>
-      </div>;
-    }
-    if (m.type === 'user_question') {
-      const missing = !m.taskId;
-      return <div key={m.id} className='msg card-question'>
-        <div><b>Question from agent</b></div>
-        <div>{m.text}</div>
-        {Array.isArray(m.options) && m.options.length > 0 && <div className='subtle'>Options: {m.options.join(' · ')}</div>}
-        <div className='row-actions'>
-          <input value={questionAnswers[m.id] || ''} onChange={(e) => setQuestionAnswers((prev) => ({ ...prev, [m.id]: e.target.value }))} placeholder='Type your answer' disabled={missing || !!messageBusy[m.id]} />
-          <button disabled={missing || !!messageBusy[m.id] || !(questionAnswers[m.id] || '').trim()} onClick={() => void submitUserAnswer(m)}>Submit</button>
-        </div>
-        {missing && <div className='subtle'>Missing question metadata (taskId).</div>}
-        {messageErrors[m.id] && <div className='msg msg-error'>{messageErrors[m.id]}</div>}
-      </div>;
-    }
-    return <div key={m.id} className={`msg ${m.type || 'assistant'}`}><div>{m.text || ''}</div>{m.taskId && <div className='subtle'>Task: {m.taskId}</div>}</div>;
-  };
 
   return <div className='app-shell'>
     <aside className='sidebar'>
