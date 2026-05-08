@@ -4,20 +4,21 @@ import type { AgentActionType } from '../actions/actionSchemas';
 export interface ContextPacketInput { taskId:string; userGoal:string; currentObjective:string; compactState:CompactTaskState; snapshot?:BrowserSnapshot; recentActions?:Array<{type:string;status:string;observation:string}>; failedAttempts?:string[]; fileSummaries?:string[]; recoveryHint?:string; allowedActionTypes:AgentActionType[]; pendingUserQuestion?:any; pendingApproval?:any; userAnswers?:string[]; stopRules?:string[]; noProgressSummary?: string; repeatedFailureSummary?: string; discouragedActions?: string[]; bannedNextActions?: string[]; recoveryInstruction?: string; }
 
 const ACTION_PROTOCOL: Record<string, { when: string; schema: Record<string, unknown>; example: Record<string, unknown> }> = {
-  open_url: { when: 'Navigate to a known URL.', schema: { type: 'open_url', url: 'string', snapshotId: 'string' }, example: { type: 'open_url', url: 'https://example.com/docs', snapshotId: 's123' } },
-  read_current_page: { when: 'Refresh stale/missing page context.', schema: { type: 'read_current_page', snapshotId: 'string' }, example: { type: 'read_current_page', snapshotId: 's123' } },
-  click_candidate: { when: 'Activate a visible clickable candidate.', schema: { type: 'click_candidate', candidateId: 'string', snapshotId: 'string' }, example: { type: 'click_candidate', candidateId: 'click_2', snapshotId: 's123' } },
-  fill_field: { when: 'Type/select in a visible form field.', schema: { type: 'fill_field', fieldId: 'string', value: 'string', snapshotId: 'string' }, example: { type: 'fill_field', fieldId: 'field_email', value: 'user@example.com', snapshotId: 's123' } },
-  observe_desktop: { when: 'Inspect desktop state before desktop action.', schema: { type: 'observe_desktop' }, example: { type: 'observe_desktop' } },
-  take_screenshot: { when: 'Capture visual evidence for current state.', schema: { type: 'take_screenshot' }, example: { type: 'take_screenshot' } },
-  open_path: { when: 'Open known local file/folder path.', schema: { type: 'open_path', path: 'string' }, example: { type: 'open_path', path: '/workspace/project/README.md' } },
-  list_directory: { when: 'Discover files in an allowed directory.', schema: { type: 'list_directory', path: 'string' }, example: { type: 'list_directory', path: '/workspace/project' } },
-  read_file: { when: 'Read file contents for evidence.', schema: { type: 'read_file', path: 'string' }, example: { type: 'read_file', path: '/workspace/project/package.json' } },
-  write_file: { when: 'Create/update a file with concrete content.', schema: { type: 'write_file', path: 'string', content: 'string' }, example: { type: 'write_file', path: '/workspace/project/notes.txt', content: 'next steps' } },
-  run_shell_command: { when: 'Run a command needed for evidence/workflow.', schema: { type: 'run_shell_command', command: 'string', reason: 'string' }, example: { type: 'run_shell_command', command: 'npm test -- tests/contextPacket.test.ts', reason: 'verify packet formatting tests' } },
-  ask_user: { when: 'Only when missing info cannot be discovered safely.', schema: { type: 'ask_user', question: 'string', options: ['string?'] }, example: { type: 'ask_user', question: 'Which folder should I inspect?', options: ['/workspace/app', '/workspace/site'] } },
-  final_answer: { when: 'Task done with evidence, or genuinely blocked.', schema: { type: 'final_answer', response: 'string', evidenceRefs: ['string'], blockedReason: 'string|null' }, example: { type: 'final_answer', response: 'Updated config and verified tests pass.', evidenceRefs: ['file:src/config.ts'], blockedReason: null } },
+  open_url: { when: 'Navigate to a known URL.', schema: { type: 'open_url', params: { url: 'string' } }, example: { type: 'open_url', params: { url: 'https://example.com' } } },
+  read_current_page: { when: 'Refresh stale/missing page context.', schema: { type: 'read_current_page', params: {} }, example: { type: 'read_current_page', params: {} } },
+  click_candidate: { when: 'Activate a visible clickable candidate.', schema: { type: 'click_candidate', params: { candidateId: 'string', expectedSnapshotId: 'string?' } }, example: { type: 'click_candidate', params: { candidateId: 'c_1', expectedSnapshotId: 's_123' } } },
+  fill_field: { when: 'Type/select in a visible form field.', schema: { type: 'fill_field', params: { fieldId: 'string', value: 'string', expectedSnapshotId: 'string?' } }, example: { type: 'fill_field', params: { fieldId: 'f_1', value: 'example text', expectedSnapshotId: 's_123' } } },
+  observe_desktop: { when: 'Inspect desktop state before desktop action.', schema: { type: 'observe_desktop', params: {} }, example: { type: 'observe_desktop', params: {} } },
+  take_screenshot: { when: 'Capture visual evidence for current state.', schema: { type: 'take_screenshot', params: {} }, example: { type: 'take_screenshot', params: {} } },
+  open_path: { when: 'Open known local file/folder path.', schema: { type: 'open_path', params: { path: 'string' } }, example: { type: 'open_path', params: { path: '/workspace/project/README.md' } } },
+  list_directory: { when: 'Discover files in an allowed directory.', schema: { type: 'list_directory', params: { path: 'string' } }, example: { type: 'list_directory', params: { path: '/workspace/project' } } },
+  read_file: { when: 'Read file contents for evidence.', schema: { type: 'read_file', params: { path: 'string' } }, example: { type: 'read_file', params: { path: '/workspace/project/package.json' } } },
+  write_file: { when: 'Create/update a file with concrete content.', schema: { type: 'write_file', params: { path: 'string', content: 'string' } }, example: { type: 'write_file', params: { path: '/workspace/project/notes.txt', content: 'next steps' } } },
+  run_shell_command: { when: 'Run a command needed for evidence/workflow.', schema: { type: 'run_shell_command', params: { command: 'string' } }, example: { type: 'run_shell_command', params: { command: 'npm test -- tests/contextPacket.test.ts' } } },
+  ask_user: { when: 'Only when missing info cannot be discovered safely.', schema: { type: 'ask_user', params: { question: 'string', options: ['string?'] } }, example: { type: 'ask_user', params: { question: 'Which folder should I inspect?', options: ['/workspace/app', '/workspace/site'] } } },
+  final_answer: { when: 'Task done with evidence, or genuinely blocked.', schema: { type: 'final_answer', params: { summary: 'string', evidenceRefs: ['string'], remainingSteps: ['string'], uncertainty: 'low|medium|high' } }, example: { type: 'final_answer', params: { summary: 'Done.', evidenceRefs: [], remainingSteps: [], uncertainty: 'low' } } },
 };
+
 
 function truncateText(v?:string, max=1200){ return (v||'').length>max ? `${(v||'').slice(0,max)}…[truncated]` : (v||''); }
 
