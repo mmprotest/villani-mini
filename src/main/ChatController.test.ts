@@ -24,4 +24,18 @@ describe('ChatController task progress flow', () => {
     expect(taskMsgs).toHaveLength(1);
     expect(taskMsgs[0].status).toBe('completed');
   });
+
+  it('maps task.pendingApproval metadata in appendTaskResult', () => {
+    const c = new ChatController({} as any, () => ({ endpointUrl: '', modelName: '', mode: 'external_openai_compatible', autoStart: false }));
+    c.appendTaskResult({ task: { id: 't_2', status: 'waiting_for_approval', pendingApproval: { proposalId: 'p_1', toolUseId: 'u_1', toolName: 'open_path', targetSummary: '/tmp/a', riskReasons: ['Opening a local file or folder requires approval.'], redactedInput: { path: '/tmp/a' } } } });
+    const m = c.getHistory().find((x) => x.taskId === 't_2');
+    expect(m).toMatchObject({ proposalId: 'p_1', toolUseId: 'u_1', actionId: 'p_1', actionType: 'open_path', targetSummary: '/tmp/a' });
+  });
+
+  it('preserves approval metadata in applyTaskEvent', () => {
+    const c = new ChatController({} as any, () => ({ endpointUrl: '', modelName: '', mode: 'external_openai_compatible', autoStart: false }));
+    c.applyTaskEvent({ type: 'approval_required', taskId: 't_3', proposalId: 'p_2', toolUseId: 'u_2', toolName: 'write_file', targetSummary: '/tmp/out.txt', riskReasons: ['Writing files requires approval.'], redactedInput: { path: '/tmp/out.txt' } });
+    const m = c.getHistory().find((x) => x.taskId === 't_3');
+    expect(m).toMatchObject({ proposalId: 'p_2', toolUseId: 'u_2', actionType: 'write_file', targetSummary: '/tmp/out.txt' });
+  });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { AgentController } from './AgentController';
 import { fromOpenAIAssistantMessage, toOpenAIChatMessages } from '../model/openaiTranscriptAdapter';
 
@@ -55,5 +55,28 @@ describe('task lifecycle events', () => {
     const t = await c.createTask({ goal: 'fail' });
     await expect(c.runTask(t.task.id)).rejects.toThrow('boom');
     expect(events.some((e)=>e.type==='task_failed' && e.status==='error')).toBe(true);
+  });
+
+  it('stores and emits full approval metadata for open_path', async () => {
+    const provider:any = { createMessage: async () => ({ message: { role: 'assistant', content: [{ type: 'tool_use', id: 'u1', name: 'open_path', input: { path: '/tmp/demo' } }] } }) };
+    const store = fakeStore();
+    const c = new AgentController(provider, { getCurrentSnapshot:()=>null } as any, store, { listFilesForTask:()=>[] } as any);
+    const events:any[] = [];
+    c.onEvent((e)=>events.push(e));
+    const t = await c.createTask({ goal: 'open path' });
+    await c.runTask(t.task.id);
+    const pending = store.getTask(t.task.id).pendingApproval;
+    expect(pending).toMatchObject({ proposalId: 'u1', toolUseId: 'u1', toolName: 'open_path', targetSummary: '/tmp/demo', redactedInput: { path: '/tmp/demo' } });
+    const approvalEvent = events.find((e)=>e.type==='approval_required');
+    expect(approvalEvent).toMatchObject({ proposalId: 'u1', toolUseId: 'u1', toolName: 'open_path', targetSummary: '/tmp/demo' });
+  });
+
+  it('approveAction rejects mismatched approval id and accepts matching ids', async () => {
+    const provider:any = { createMessage: vi.fn(async () => ({ message: { role: 'assistant', content: [{ type: 'tool_use', id: 'u2', name: 'open_path', input: { path: '/tmp/demo2' } }] } })) };
+    const c = new AgentController(provider, { getCurrentSnapshot:()=>null } as any, fakeStore(), { listFilesForTask:()=>[] } as any);
+    const t = await c.createTask({ goal: 'open path 2' });
+    await c.runTask(t.task.id);
+    await expect(c.approveAction(t.task.id, 'bad_id')).rejects.toThrow('approval_id_mismatch');
+    await expect(c.approveAction(t.task.id, 'u2')).resolves.toBeTruthy();
   });
 });
