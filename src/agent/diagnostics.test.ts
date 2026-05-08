@@ -39,5 +39,8 @@ describe('diagnostics', () => {
     expect(JSON.stringify(parsed)).not.toContain('abc123secret');
     const summary = JSON.parse(await fs.readFile(path.join(tdir, 'final_summary.json'), 'utf8'));
     expect(summary.rootCauseCategory).toBe('unknown');
+    const snapshotFile = JSON.parse(await fs.readFile(path.join(tdir, 'browser_snapshots', 's1.json'), 'utf8'));
+    expect(snapshotFile.snapshotId).toBe('s1');
+    expect(await fs.readFile(path.join(tdir, 'model_calls.jsonl'), 'utf8')).toContain('"parsedAction"');
   });
 });
