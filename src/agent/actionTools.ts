@@ -1,25 +1,36 @@
-import { actionSchema, type AgentActionType, type AgentAction } from '../actions/actionSchemas';
-
-export type OpenAITool = { type: 'function'; function: { name: AgentActionType; description: string; parameters: Record<string, unknown> } };
-
-const TOOL_DEFS: Record<AgentActionType, OpenAITool> = {
-  open_url: { type: 'function', function: { name: 'open_url', description: 'Open a URL in the managed browser.', parameters: { type: 'object', properties: { url: { type: 'string', format: 'uri' } }, required: ['url'], additionalProperties: false } } },
-  read_current_page: { type: 'function', function: { name: 'read_current_page', description: 'Read the current page snapshot.', parameters: { type: 'object', properties: {}, additionalProperties: false } } },
-  click_candidate: { type: 'function', function: { name: 'click_candidate', description: 'Click a visible candidate.', parameters: { type: 'object', properties: { candidateId: { type: 'string' }, snapshotId: { type: 'string' }, expectedSnapshotId: { type: 'string' } }, required: ['candidateId'], additionalProperties: false } } },
-  fill_field: { type: 'function', function: { name: 'fill_field', description: 'Fill a visible field.', parameters: { type: 'object', properties: { fieldId: { type: 'string' }, value: { type: 'string' }, valueDescription: { type: 'string' }, snapshotId: { type: 'string' }, expectedSnapshotId: { type: 'string' } }, required: ['fieldId', 'value'], additionalProperties: false } } },
-  observe_desktop: { type: 'function', function: { name: 'observe_desktop', description: 'Capture desktop observation.', parameters: { type: 'object', properties: {}, additionalProperties: false } } },
-  take_screenshot: { type: 'function', function: { name: 'take_screenshot', description: 'Capture screenshot evidence.', parameters: { type: 'object', properties: { displayId: { type: 'string' } }, additionalProperties: false } } },
-  open_path: { type: 'function', function: { name: 'open_path', description: 'Open a local file or folder path.', parameters: { type: 'object', properties: { path: { type: 'string', minLength: 1 } }, required: ['path'], additionalProperties: false } } },
-  list_directory: { type: 'function', function: { name: 'list_directory', description: 'List files in a directory.', parameters: { type: 'object', properties: { path: { type: 'string', minLength: 1 }, limit: { type: 'integer', minimum: 1, maximum: 200 } }, required: ['path'], additionalProperties: false } } },
-  read_file: { type: 'function', function: { name: 'read_file', description: 'Read a local file.', parameters: { type: 'object', properties: { path: { type: 'string', minLength: 1 }, maxBytes: { type: 'integer', minimum: 128, maximum: 65536 } }, required: ['path'], additionalProperties: false } } },
-  write_file: { type: 'function', function: { name: 'write_file', description: 'Write a local file.', parameters: { type: 'object', properties: { path: { type: 'string', minLength: 1 }, content: { type: 'string' }, mode: { type: 'string', enum: ['overwrite', 'append'] } }, required: ['path', 'content'], additionalProperties: false } } },
-  run_shell_command: { type: 'function', function: { name: 'run_shell_command', description: 'Run a shell command.', parameters: { type: 'object', properties: { command: { type: 'string', minLength: 1 }, cwd: { type: 'string' }, timeoutMs: { type: 'integer', minimum: 100, maximum: 120000 } }, required: ['command'], additionalProperties: false } } },
-  ask_user: { type: 'function', function: { name: 'ask_user', description: 'Ask the user for missing information.', parameters: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, required: ['question'], additionalProperties: false } } },
-  final_answer: { type: 'function', function: { name: 'final_answer', description: 'Complete the task or report a blocker.', parameters: { type: 'object', properties: { summary: { type: 'string' }, evidenceRefs: { type: 'array', items: { type: 'string' } }, remainingSteps: { type: 'array', items: { type: 'string' } }, uncertainty: { type: 'string', enum: ['low', 'medium', 'high'] }, blockedReason: { type: 'string' } }, required: ['summary', 'evidenceRefs', 'remainingSteps', 'uncertainty'], additionalProperties: false } } }
+export type MiniToolSpec = {
+  name: string;
+  description: string;
+  input_schema: {
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+    additionalProperties?: boolean;
+  };
 };
 
-export function buildActionTools(allowedActionTypes: AgentActionType[]): OpenAITool[] { return allowedActionTypes.map((t) => TOOL_DEFS[t]); }
+export type OpenAITool = { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } };
 
+export const MINI_TOOL_SPECS: MiniToolSpec[] = [
+  { name: 'open_url', description: 'Open a URL in the managed Playwright browser.', input_schema: { type: 'object', properties: { url: { type: 'string', description: 'Absolute URL to open. Include https:// for normal websites.' } }, required: ['url'], additionalProperties: false } },
+  { name: 'read_current_page', description: 'Read the current managed browser page and return a concise snapshot.', input_schema: { type: 'object', properties: {}, additionalProperties: false } },
+  { name: 'click_candidate', description: 'Click a clickable browser candidate from the latest page snapshot.', input_schema: { type: 'object', properties: { candidateId: { type: 'string' }, expectedSnapshotId: { type: 'string' } }, required: ['candidateId', 'expectedSnapshotId'], additionalProperties: false } },
+  { name: 'fill_field', description: 'Fill a form field from the latest page snapshot.', input_schema: { type: 'object', properties: { fieldId: { type: 'string' }, value: { type: 'string' }, expectedSnapshotId: { type: 'string' } }, required: ['fieldId', 'value', 'expectedSnapshotId'], additionalProperties: false } },
+  { name: 'observe_desktop', description: 'Observe bounded desktop/system context.', input_schema: { type: 'object', properties: {}, additionalProperties: false } },
+  { name: 'take_screenshot', description: 'Capture a desktop screenshot if supported.', input_schema: { type: 'object', properties: {}, additionalProperties: false } },
+  { name: 'open_path', description: 'Open a file or folder using the OS default handler.', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false } },
+  { name: 'list_directory', description: 'List bounded metadata for files in a directory.', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false } },
+  { name: 'read_file', description: 'Read a bounded text file.', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false } },
+  { name: 'write_file', description: 'Write/update a file, subject to approval and path policy.', input_schema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'], additionalProperties: false } },
+  { name: 'run_shell_command', description: 'Run a shell command with approval and timeout.', input_schema: { type: 'object', properties: { command: { type: 'string' }, cwd: { type: 'string' }, timeoutMs: { type: 'number' } }, required: ['command'], additionalProperties: false } },
+  { name: 'ask_user', description: 'Ask the user for information that cannot be safely discovered through tools.', input_schema: { type: 'object', properties: { question: { type: 'string' }, reason: { type: 'string' } }, required: ['question'], additionalProperties: false } }
+];
+
+export function toOpenAITools(tools: MiniToolSpec[]): OpenAITool[] {
+  return tools.map((tool) => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.input_schema } }));
+}
+
+export function buildActionTools(_allowed: string[]): OpenAITool[] { return toOpenAITools(MINI_TOOL_SPECS); }
 export function normalizeToolCallShape(toolCall: any): { name: string; arguments: unknown } {
   const fn = toolCall?.function;
   const name = typeof fn?.name === 'string' ? fn.name : toolCall?.name;
@@ -27,9 +38,8 @@ export function normalizeToolCallShape(toolCall: any): { name: string; arguments
   if (!name || typeof name !== 'string') throw new Error('invalid_tool_call_name');
   return { name, arguments: args };
 }
-
-export function parseToolCallToAction(toolCall: any): AgentAction {
+export function parseToolCallToAction(toolCall: any): { type: string; params: Record<string, unknown> } {
   const { name, arguments: argsRaw } = normalizeToolCallShape(toolCall);
   const args = typeof argsRaw === 'string' ? JSON.parse(argsRaw || '{}') : (argsRaw ?? {});
-  return actionSchema.parse({ type: name, params: args } as AgentAction);
+  return { type: name, params: args as Record<string, unknown> };
 }
