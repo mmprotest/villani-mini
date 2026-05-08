@@ -55,7 +55,11 @@ export function getAssetManager(){ return assets; }
 export function registerIpc(win: BrowserWindow){
   agentController.onEvent((event)=>{
     win.webContents.send('task:event', event);
-    win.webContents.send('chat:updated', chatController.getHistory());
+    chatController.applyTaskEvent(event);
+  });
+  chatController.onUpdated((messages)=>{
+    console.log(`[ipc] forwarding chat:updated messages=${messages.length}`);
+    win.webContents.send('chat:updated', messages);
   });
   assets.onUpdate((s)=>win.webContents.send('localAssets:statusUpdated', s));
   ipcMain.handle('localAssets:getStatus', ()=>assets.getStatus());
@@ -78,10 +82,10 @@ export function registerIpc(win: BrowserWindow){
   ipcMain.handle('modelBackend:updateConfig', async (_,patch:Partial<LocalModelBackendConfig>)=>{ const cfg={...modelBackendStore.getConfig(),...patch}; modelBackendStore.saveConfig(cfg); return cfg; });
 
   ipcMain.handle('chat:getHistory', ()=>chatController.getHistory());
-  ipcMain.handle('chat:sendMessage', async (_,text:string)=>{ logger.logIpc('chat:sendMessage received',{chars:String(text||'').length,preview:String(text||'').slice(0,80)}); const out = await chatController.sendMessage(String(text||'')); win.webContents.send('chat:updated', out); return out; });
-  ipcMain.handle('chat:approve', async (_,taskId:string,proposalId:string)=>{ logger.logIpc('chat:approve',{taskId,actionId:proposalId}); let s=await agentController.approveAction(taskId,proposalId); if (!['completed','blocked','waiting_for_approval','waiting_for_user','error','stopped'].includes(s.task.status)) s = await agentController.runTask(taskId); const out=chatController.appendTaskResult(s); win.webContents.send('chat:updated', out); return out; });
-  ipcMain.handle('chat:reject', async (_,taskId:string,proposalId:string,reason?:string)=>{ logger.logIpc('chat:reject',{taskId,actionId:proposalId}); const s=agentController.rejectAction(taskId,proposalId,reason); const out=chatController.appendTaskResult(s); win.webContents.send('chat:updated', out); return out; });
-  ipcMain.handle('chat:answer', async (_,taskId:string,answer:string)=>{ await agentController.answerUserQuestion(taskId,answer); const s=await agentController.runTask(taskId); const out=chatController.appendTaskResult(s); win.webContents.send('chat:updated', out); return out; });
+  ipcMain.handle('chat:sendMessage', async (_,text:string)=>{ logger.logIpc('chat:sendMessage received',{chars:String(text||'').length,preview:String(text||'').slice(0,80)}); return chatController.sendMessage(String(text||'')); });
+  ipcMain.handle('chat:approve', async (_,taskId:string,proposalId:string)=>{ logger.logIpc('chat:approve',{taskId,actionId:proposalId}); const s=await agentController.approveAction(taskId,proposalId); return chatController.appendTaskResult(s); });
+  ipcMain.handle('chat:reject', async (_,taskId:string,proposalId:string,reason?:string)=>{ logger.logIpc('chat:reject',{taskId,actionId:proposalId}); const s=await agentController.rejectAction(taskId,proposalId,reason); return chatController.appendTaskResult(s); });
+  ipcMain.handle('chat:answer', async (_,taskId:string,answer:string)=>{ const s=await agentController.answerUserQuestion(taskId,answer); return chatController.appendTaskResult(s); });
 
   ipcMain.handle('task:list', ()=>agentController.listTasks());
   ipcMain.handle('task:getState', async (_,taskId)=> taskId ? agentController.getTaskState(String(taskId)) : err('invalid_input','taskId required'));
