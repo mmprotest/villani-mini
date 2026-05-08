@@ -20,6 +20,8 @@ export type LocalModelBackendConfig = {
 };
 
 export type ModelBackendStatus = 'not_configured' | 'starting' | 'running' | 'attached' | 'failed' | 'stopped';
+export type BackendCapabilities = { supportsTools:boolean; toolSupportReason:string; chatTemplateFormat?:string; hasChatTemplate?:boolean; hasToolUseTemplate?:boolean };
+
 export type ModelBackendState = {
   status: ModelBackendStatus;
   endpointUrl: string;
@@ -33,6 +35,7 @@ export type ModelBackendState = {
   processMode?: 'spawned'|'attached';
   healthCheckOk?: boolean;
   baseUrl?: string;
+  capabilities?: BackendCapabilities;
 };
 
 export const DEFAULT_LOCAL_MODEL_BACKEND_CONFIG: LocalModelBackendConfig = {
@@ -65,6 +68,26 @@ export class LlamaServerManager {
     return false;
   }
 
+
+  private async fetchProps(endpointUrl:string){
+    try {
+      const base = this.normalizeEndpoint(endpointUrl).replace(/\/v1$/,'');
+      const r = await fetch(`${base}/props`);
+      if (!r.ok) throw new Error(`status ${r.status}`);
+      const j:any = await r.json();
+      const hasChatTemplate = !!j?.chat_template;
+      const hasToolUseTemplate = !!j?.chat_template_tool_use;
+      const chatFormat = j?.chat_format;
+      console.log(`[backend] props fetched hasChatTemplate=${hasChatTemplate} hasToolUseTemplate=${hasToolUseTemplate} chatFormat=${chatFormat ?? 'n/a'}`);
+      console.log(`[backend] /props has chat_template_tool_use=${hasToolUseTemplate}`);
+      const supportsTools = hasToolUseTemplate || hasChatTemplate;
+      console.log(`[backend] tool calling: ${supportsTools ? 'enabled' : 'possibly_unsupported'}`);
+      this.state.capabilities = { supportsTools, toolSupportReason: supportsTools ? 'props_template_present' : 'props_missing_tool_template', chatTemplateFormat: chatFormat, hasChatTemplate, hasToolUseTemplate };
+    } catch (e:any) {
+      console.warn(`[backend] warning: /props unavailable (${String(e?.message||e)})`);
+      this.state.capabilities = { supportsTools:false, toolSupportReason:'props_fetch_failed' };
+    }
+  }
   discoverBinary(config: LocalModelBackendConfig){
     const candidates = [
       config.llamaServerPath,
@@ -96,13 +119,13 @@ export class LlamaServerManager {
   async ensureRunning(config: LocalModelBackendConfig){
     const endpointUrl = this.normalizeEndpoint(config.endpointUrl || DEFAULT_LOCAL_MODEL_BACKEND_CONFIG.endpointUrl);
     this.state = { ...this.state, status:'starting', endpointUrl, lastError:undefined, missingBinary:false, missingModel:false };
-    if (await this.checkHealthy(endpointUrl)) { this.attachedExternal = true; this.state.status = 'attached'; this.state.processMode='attached'; return this.getStatus(); }
+    if (await this.checkHealthy(endpointUrl)) { this.attachedExternal = true; this.state.status = 'attached'; this.state.processMode='attached'; await this.fetchProps(endpointUrl); return this.getStatus(); }
     if (!config.autoStart || config.mode==='external_openai_compatible') { this.state.status='failed'; this.state.lastError='Endpoint is not healthy and auto-start is disabled'; return this.getStatus(); }
     if (this.child && this.child.exitCode == null) { this.logInfo('backend process already running, skipping duplicate spawn',{pid:this.child.pid}); }
     if (this.child && this.child.exitCode == null) {
       const deadline = Date.now()+15_000;
       logger.logBackend('health check',{url:`${endpointUrl}/models`,timeoutMs:60000});
-    while(Date.now()<deadline){ if(await this.checkHealthy(endpointUrl)){ this.state.status='running'; logger.logBackend('health check ready',{status:200,baseUrl:endpointUrl.replace(/\/v1$/,'')}); return this.getStatus(); } await sleep(500); }
+    while(Date.now()<deadline){ if(await this.checkHealthy(endpointUrl)){ this.state.status='running'; logger.logBackend('health check ready',{status:200,baseUrl:endpointUrl.replace(/\/v1$/,'')}); await this.fetchProps(endpointUrl); return this.getStatus(); } await sleep(500); }
       this.state.status='failed'; this.state.lastError='Existing backend process is running but unhealthy';
       return this.getStatus();
     }
@@ -112,7 +135,8 @@ export class LlamaServerManager {
     this.state.llamaServerPath = binary;
     this.logInfo('starting llama-server',{binaryPath:binary,modelPath,baseUrl:endpointUrl.replace(/\/v1$/,'')}); logger.logBackend('starting llama-server',{exe:binary,model:modelPath,baseUrl:endpointUrl.replace(/\/v1$/,''),cwd:process.cwd()});
     if(!modelPath){ this.state.status='not_configured'; this.state.missingModel=true; this.state.lastError='Missing GGUF model file'; return this.getStatus(); }
-    const args = ['--model', modelPath, '--host', config.host ?? '127.0.0.1', '--port', String(config.port ?? 34783), '--ctx-size', String(config.ctxSize ?? 8192)];
+    const args = ['--model', modelPath, '--host', config.host ?? '127.0.0.1', '--port', String(config.port ?? 34783), '--ctx-size', String(config.ctxSize ?? 8192), '--jinja'];
+    console.log('[backend] tool calling enabled via --jinja');
     if(config.threads) args.push('--threads', String(config.threads));
     if(config.gpuLayers!=null) args.push('--gpu-layers', String(config.gpuLayers));
     if(config.extraArgs?.length) args.push(...config.extraArgs);
@@ -125,7 +149,7 @@ export class LlamaServerManager {
     this.child.on('exit',(code,signal)=>{ if(this.state.status!=='stopped'){ this.state.status='failed'; this.state.lastError=`llama-server exited (${code ?? 'unknown'})`; this.logInfo('llama-server exit',{code:code ?? 'unknown'}); logger.logWarn('backend','llama-server exited',{code:code ?? 'unknown',signal:signal ?? null,lastStderr:this.state.lastError}); }});
     const deadline = Date.now()+60_000;
     logger.logBackend('health check',{url:`${endpointUrl}/models`,timeoutMs:60000});
-    while(Date.now()<deadline){ if(await this.checkHealthy(endpointUrl)){ this.state.status='running'; logger.logBackend('health check ready',{status:200,baseUrl:endpointUrl.replace(/\/v1$/,'')}); return this.getStatus(); } await sleep(500); }
+    while(Date.now()<deadline){ if(await this.checkHealthy(endpointUrl)){ this.state.status='running'; logger.logBackend('health check ready',{status:200,baseUrl:endpointUrl.replace(/\/v1$/,'')}); await this.fetchProps(endpointUrl); return this.getStatus(); } await sleep(500); }
     this.state.status='failed'; this.state.lastError='Timed out waiting for model backend'; logger.logError('backend','health check failed',{lastError:this.state.lastError,lastStderr:this.state.lastError});
     return this.getStatus();
   }

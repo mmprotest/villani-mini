@@ -6,6 +6,7 @@ import { actionSchema, PLANNER_ALLOWED_ACTION_TYPES, type AgentAction } from '..
 import { scoreRisk } from '../actions/riskScoring';
 import { evaluateActionPermission } from '../actions/permissionEngine';
 import { buildActionPrompt, buildContextPacket, buildRepairPrompt } from './contextPacket';
+import { buildActionTools, parseToolCallToAction } from './actionTools';
 import { jsonRepair } from '../model/jsonRepair';
 import { TaskStore, taskStore } from '../store/taskStore';
 import { FileStore, fileStore } from '../store/fileStore';
@@ -145,16 +146,42 @@ export class AgentController {
     return actionSchema.parse(parsed);
   }
   private async generateActionWithRepair(taskId:string, packet:string){
-    const step = typeof (this.store as any).getActions === 'function' ? (this.store as any).getActions(taskId).length + 1 : 1;
+    const step = typeof (this.store as any).getActions === 'function' ? (this.store as any).getActions(taskId).length : 0;
     const startedAt = Date.now();
-    const first=await this.provider.generateText(buildActionPrompt(packet)); logger.logModel(taskId,step,'prompt_stats',{chars:packet.length,approxTokens:Math.ceil(packet.length/4)}); if (logger.flags.prompts) logger.logModel(taskId,step,'prompt',packet);
-    try { const parsed = this.parseNormalizeValidate(first); logger.logModel(taskId,step,'call_completed',{durationMs:Date.now()-startedAt,responseChars:first.length}); logger.logModel(taskId,step,'parsed_action',{type:parsed.type,valid:true}); if (logger.flags.prompts) logger.logModel(taskId,step,'raw response',first); await diagnostics.writeModelCall(taskId,{step,promptChars:packet.length,rawModelResponse:first,parsedAction:parsed,durationMs:Date.now()-startedAt,schemaValidationResult:'ok'}); return parsed; } catch (e) { logger.logWarn('model '+taskId+' step '+step,'parse_failed',{error:String((e as Error).message)});
-      this.event(taskId,'model_invalid_output',`first_pass:${sanitize(String((e as Error).message))} raw=${sanitize(first).slice(0,500)}`);
+    const tools = buildActionTools(PLANNER_ALLOWED_ACTION_TYPES);
+    logger.logModel(taskId,step,'tool_calling enabled',{tools:tools.length,tool_choice:'required'});
+    let response:any;
+    try {
+      response = await (this.provider as any).request?.([{ role: 'system', content: buildActionPrompt(packet) }, { role: 'user', content: 'Choose the next action.' }], { temperature: 0, max_tokens: 256, tools, tool_choice: 'required' });
+    if (!response && typeof (this.provider as any).generateText === 'function') {
+      const txt = await (this.provider as any).generateText(buildActionPrompt(packet), { temperature: 0, max_tokens: 256 });
+      return this.parseNormalizeValidate(txt);
+    }
+    } catch (e:any) {
+      if (String(e?.message||'').includes('400')) {
+        logger.logWarn(`model ${taskId} step ${step}`,'tool_choice required unsupported, falling back to auto');
+        response = await (this.provider as any).request?.([{ role: 'system', content: buildActionPrompt(packet) }, { role: 'user', content: 'Choose the next action.' }], { temperature: 0, max_tokens: 256, tools, tool_choice: 'auto' });
+      } else throw e;
+    }
+    const msg = response?.choices?.[0]?.message ?? {};
+    const toolCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+    if (toolCalls.length > 1) {
+      logger.logWarn(`model ${taskId} step ${step}`,'multiple_tool_calls_not_supported',{count:toolCalls.length});
+      throw new Error('multiple_tool_calls_not_supported');
+    }
+    if (toolCalls.length === 1) {
+      const tc = toolCalls[0];
+      const parsed = parseToolCallToAction(tc);
+      logger.logModel(taskId,step,'tool_call',{name: tc?.function?.name ?? tc?.name, args: tc?.function?.arguments ?? tc?.arguments});
+      logger.logModel(taskId,step,'parsed_action',{type:parsed.type,valid:true});
+      return parsed;
+    }
+    logger.logWarn(`model ${taskId} step ${step}`,'no_tool_calls_fallback_to_text_parse',{preview: String(msg?.content ?? '').slice(0,240)});
+    const first = String(msg?.content ?? '') || await this.provider.generateText(buildActionPrompt(packet), { temperature: 0, max_tokens: 256 });
+    try { return this.parseNormalizeValidate(first); } catch (e) {
       const repairPrompt=buildRepairPrompt(packet, String((e as Error).message), first.slice(0,1500));
-      logger.logModel(taskId,step,'repair_started'); const second=await this.provider.generateText(repairPrompt);
-      try { const parsed2=this.parseNormalizeValidate(second); logger.logModel(taskId,step,'repair_completed',{valid:true,type:parsed2.type}); await diagnostics.writeModelCall(taskId,{step,promptChars:packet.length,rawModelResponse:first,parseError:String((e as Error).message),repairAttempted:true,repairPromptSummary:repairPrompt.slice(0,240),repairResult:second,parsedAction:parsed2,durationMs:Date.now()-startedAt,schemaValidationResult:'ok'}); return parsed2; } catch (e2) {
-        this.event(taskId,'model_invalid_output',`repair_pass:${sanitize(String((e2 as Error).message))} raw=${sanitize(second).slice(0,500)}`);
-        await diagnostics.writeModelCall(taskId,{step,promptChars:packet.length,rawModelResponse:first,parseError:String((e as Error).message),repairAttempted:true,repairResult:second,schemaValidationResult:'failed',durationMs:Date.now()-startedAt});
+      const second=await this.provider.generateText(repairPrompt, { temperature: 0, max_tokens: 256 });
+      try { return this.parseNormalizeValidate(second); } catch {
         return actionSchema.parse({type:'ask_user',params:{question:'I could not produce a valid next action automatically. Do you want me to retry or provide a specific next step?'},meta:{reason:'model_invalid_json_repair_failed'}});
       }
     }
