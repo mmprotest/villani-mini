@@ -7,11 +7,26 @@ import { modelBackendStore } from '../store/modelBackendStore';
 import { chatController } from './ChatController';
 import { LocalAssetManager } from '../model/LocalAssetManager';
 import { diagnostics } from '../agent/diagnostics';
+import { checkManagedBrowserReady } from '../browser/ManagedBrowser';
+import { spawn } from 'node:child_process';
 
 const manager = new LlamaServerManager();
 const assets = new LocalAssetManager();
 const err = (code:string,message:string)=>({ok:false,error:{code,message}});
 const emit = (win: BrowserWindow)=>win.webContents.send('modelBackend:statusUpdated', manager.getStatus());
+let browserAutomationStatus: 'ready'|'missing_browser'|'launch_failed'|'unchecked' = 'unchecked';
+
+export async function runBrowserAutomationHealthCheck(){
+  console.log('[setup] browser automation: checking Playwright Chromium');
+  const health = await checkManagedBrowserReady();
+  browserAutomationStatus = health.status;
+  if (health.status === 'ready') console.log('[setup] browser automation: ready');
+  else if (health.status === 'missing_browser') {
+    console.log('[setup] browser automation: missing Playwright Chromium');
+    console.log(`[setup] browser automation: suggested fix: ${health.suggestedCommand}`);
+  } else console.log(`[setup] browser automation: launch failed: ${health.error ?? health.message}`);
+  return health;
+}
 
 async function retryBackendStart(win: BrowserWindow){
   const cfg = modelBackendStore.getConfig();
@@ -74,6 +89,18 @@ export function registerIpc(win: BrowserWindow){
   ipcMain.handle('task:stop', async (_,taskId)=> taskId ? agentController.stopTask(String(taskId)) : err('invalid_input','taskId required'));
   ipcMain.handle('task:attachFile', async (_,taskId,filePath)=>{ if(!taskId) return err('invalid_input','taskId required'); const rec=await ingestFile(String(filePath)); fileStore.saveFileRecord(String(taskId),rec); return rec; });
   ipcMain.handle('browser:getStatus', ()=>agentController.getBrowserStatus());
+  ipcMain.handle('setup:getStatus', async ()=>({ browserAutomationStatus, browserAutomationHealth: await checkManagedBrowserReady() }));
+  ipcMain.handle('browser:installDependencies', async ()=>{
+    const command = 'npx playwright install chromium';
+    if (!process.env.VILLANI_MINI_DEV) return { ok:false, status:'manual_only', message:'Manual install required in packaged app mode.', suggestedCommand: command };
+    console.log('[setup] browser automation: installing Playwright Chromium');
+    return await new Promise((resolve)=>{
+      const child = spawn(command, { cwd: process.cwd(), shell: true });
+      child.stdout.on('data',(d)=>console.log(`[setup] browser automation: ${String(d).trim()}`));
+      child.stderr.on('data',(d)=>console.log(`[setup] browser automation: ${String(d).trim()}`));
+      child.on('exit',(code)=>{ if (code===0) { console.log('[setup] browser automation: install completed'); resolve({ok:true,status:'installed'}); } else { console.log(`[setup] browser automation: install failed: exit ${code}`); console.log('[setup] browser automation: suggested manual fix: npx playwright install chromium'); resolve({ok:false,status:'failed',suggestedCommand:command}); } });
+    });
+  });
   ipcMain.handle('browser:openUrl', async (_,url:string)=>agentController.openBrowserUrl(String(url||'')));
   ipcMain.handle('browser:readCurrentPage', ()=>agentController.readCurrentPage());
 

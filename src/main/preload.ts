@@ -35,6 +35,7 @@ type VillaniApi = {
     getStatus: () => Promise<any>;
     openUrl: (url: string) => Promise<any>;
     readCurrentPage: () => Promise<any>;
+    installDependencies: () => Promise<any>;
   };
   config: {
     getBackendConfig: () => Promise<any>;
@@ -50,6 +51,7 @@ type VillaniApi = {
     retryAssets: () => Promise<any>;
     retryBackend: () => Promise<any>;
     retryAll: () => Promise<any>;
+    getStatus: () => Promise<any>;
   };
   localAssetsSelectModel: () => Promise<any>;
   localAssetsSelectServer: () => Promise<any>;
@@ -99,7 +101,8 @@ const villani: VillaniApi = {
   browser: {
     getStatus: () => ipcRenderer.invoke('browser:getStatus'),
     openUrl: (url: string) => ipcRenderer.invoke('browser:openUrl', url),
-    readCurrentPage: () => ipcRenderer.invoke('browser:readCurrentPage')
+    readCurrentPage: () => ipcRenderer.invoke('browser:readCurrentPage'),
+    installDependencies: () => ipcRenderer.invoke('browser:installDependencies')
   },
   config: {
     getBackendConfig: () => ipcRenderer.invoke('modelBackend:getConfig'),
@@ -119,7 +122,8 @@ const villani: VillaniApi = {
   setup: {
     retryAssets: () => ipcRenderer.invoke('setup:retryAssets'),
     retryBackend: () => ipcRenderer.invoke('setup:retryBackend'),
-    retryAll: () => ipcRenderer.invoke('setup:retryAll')
+    retryAll: () => ipcRenderer.invoke('setup:retryAll'),
+    getStatus: () => ipcRenderer.invoke('setup:getStatus')
   },
   localAssetsSelectModel: () => ipcRenderer.invoke('localAssets:selectModelFile'),
   localAssetsSelectServer: () => ipcRenderer.invoke('localAssets:selectServerBinary')

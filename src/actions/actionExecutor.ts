@@ -5,6 +5,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { exec } from 'node:child_process';
+import { normalizePlaywrightLaunchError } from '../browser/ManagedBrowser';
 
 export interface ActionExecutionResult {
   ok: boolean;
@@ -13,6 +14,8 @@ export interface ActionExecutionResult {
   evidenceRefs: string[];
   browserSnapshot?: BrowserSnapshot;
   error?: string;
+  errorCode?: string;
+  suggestedCommand?: string;
   changedPageState?: boolean;
 }
 
@@ -191,6 +194,12 @@ export async function executeAction(action: any, browser: ManagedBrowser, setPau
         return { ok: false, actionType: action.type ?? 'unknown', observationSummary: `Unknown action ${action.type}`, evidenceRefs: [], error: `Unknown action ${action.type}` };
     }
   } catch (e) {
+    const maybeBrowser = normalizePlaywrightLaunchError(e);
+    if ((action?.type ?? '').startsWith('open_') || ['open_url', 'read_current_page', 'click_candidate', 'fill_field'].includes(action?.type ?? '')) {
+      if (maybeBrowser.status === 'missing_browser') {
+        return { ok: false, actionType: action?.type ?? 'unknown', observationSummary: maybeBrowser.message, evidenceRefs: [], error: maybeBrowser.error ?? maybeBrowser.message, errorCode: 'playwright_browser_missing', suggestedCommand: maybeBrowser.suggestedCommand };
+      }
+    }
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, actionType: action?.type ?? 'unknown', observationSummary: msg, evidenceRefs: [], error: msg };
   }

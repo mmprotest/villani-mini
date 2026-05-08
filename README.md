@@ -5,6 +5,8 @@ Local-first desktop agent built with Electron + React + TypeScript.
 ## Setup
 1. Install dependencies:
    - `npm install`
+2. Install managed browser dependency:
+   - `npx playwright install chromium`
 2. Optional model backend env (for external OpenAI-compatible backend):
    - `OPENAI_BASE_URL=https://your-endpoint/v1`
    - `OPENAI_MODEL=your-model`
@@ -16,6 +18,9 @@ Local-first desktop agent built with Electron + React + TypeScript.
 
 ## Running the app
 - Dev: `npm run dev`
+
+If browser automation is missing, terminal logs will print:
+- `[setup] browser automation: suggested fix: npx playwright install chromium`
 - Build: `npm run build`
 - Start built app: `npm run start`
 

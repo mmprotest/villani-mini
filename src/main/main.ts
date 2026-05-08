@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getAssetManager, getModelBackendManager, registerIpc } from './ipc';
+import { getAssetManager, getModelBackendManager, registerIpc, runBrowserAutomationHealthCheck } from './ipc';
 import { modelBackendStore } from '../store/modelBackendStore';
 
 const isDev = process.env.VILLANI_MINI_DEV === '1';
@@ -26,6 +26,6 @@ async function bootstrapLocalBackend(window: BrowserWindow){
   const status = await getModelBackendManager().ensureRunning(cfg);
   window.webContents.send('modelBackend:statusUpdated', status);
 }
-app.whenReady().then(async () => { createWindow(); registerIpc(win); setTimeout(()=>{ void bootstrapLocalBackend(win); }, 250); });
+app.whenReady().then(async () => { createWindow(); registerIpc(win); await runBrowserAutomationHealthCheck(); setTimeout(()=>{ void bootstrapLocalBackend(win); }, 250); });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', async () => { await getModelBackendManager().stop(); });
