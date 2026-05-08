@@ -21,6 +21,8 @@ type VillaniApi = {
     approveAction: (taskId: string, proposalId: string) => Promise<any[]>;
     rejectAction: (taskId: string, proposalId: string, reason?: string) => Promise<any[]>;
     onEvent: (cb: (event: any) => void) => Unsubscribe;
+    openDebugFolder: (taskId: string) => Promise<any>;
+    copyDebugSummary: (taskId: string) => Promise<any>;
   };
   backend: {
     getStatus: () => Promise<any>;
@@ -75,6 +77,8 @@ const villani: VillaniApi = {
     answerUserQuestion: (taskId: string, answer: string) => ipcRenderer.invoke('chat:answer', taskId, answer),
     approveAction: (taskId: string, proposalId: string) => ipcRenderer.invoke('chat:approve', taskId, proposalId),
     rejectAction: (taskId: string, proposalId: string, reason?: string) => ipcRenderer.invoke('chat:reject', taskId, proposalId, reason),
+    openDebugFolder: (taskId: string) => ipcRenderer.invoke('task:openDebugFolder', taskId),
+    copyDebugSummary: (taskId: string) => ipcRenderer.invoke('task:copyDebugSummary', taskId),
     onEvent: (cb: (event: any) => void) => {
       const listener = (_event: unknown, payload: any) => cb(payload);
       ipcRenderer.on('task:event', listener);

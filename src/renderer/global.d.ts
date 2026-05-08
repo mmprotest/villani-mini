@@ -41,6 +41,8 @@ declare global {
         approveAction: (taskId: string, proposalId: string) => Promise<any[]>;
         rejectAction: (taskId: string, proposalId: string, reason?: string) => Promise<any[]>;
         onEvent: (cb: (event: any) => void) => Unsubscribe;
+        openDebugFolder: (taskId: string) => Promise<any>;
+        copyDebugSummary: (taskId: string) => Promise<any>;
       };
       browser: {
         getStatus: () => Promise<any>;
