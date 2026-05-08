@@ -138,6 +138,9 @@ export default function HomeView() {
         const next = [...(prev[taskId] || []), event].slice(-50);
         return { ...prev, [taskId]: next };
       });
+      if (event?.type === 'task_completed') {
+        setMessages((prev) => prev.map((m) => m.type === 'task_progress' && m.taskId === taskId ? { ...m, status: 'completed', text: event.finalAnswer || event.summary || m.text } : m));
+      }
     });
     return () => { off1?.(); off2?.(); off3?.(); off4?.(); };
   }, []);

@@ -23,3 +23,37 @@ describe('completion without final_answer', () => {
     expect(out.task.finalAnswer.summary).toBe('Done.');
   });
 });
+
+
+describe('task lifecycle events', () => {
+  it('emits task_completed for assistant text', async () => {
+    const provider:any = { createMessage: async () => ({ message: { role: 'assistant', content: [{ type: 'text', text: 'Finished.' }] } }) };
+    const c = new AgentController(provider, { getCurrentSnapshot:()=>null } as any, fakeStore(), { listFilesForTask:()=>[] } as any);
+    const events:any[] = [];
+    c.onEvent((e)=>events.push(e));
+    const t = await c.createTask({ goal: 'complete it' });
+    await c.runTask(t.task.id);
+    expect(events.some((e)=>e.type==='task_completed' && e.status==='completed')).toBe(true);
+  });
+
+  it('emits task_blocked when model stays idle', async () => {
+    const provider:any = { createMessage: async () => ({ message: { role: 'assistant', content: [] } }) };
+    const c = new AgentController(provider, { getCurrentSnapshot:()=>null } as any, fakeStore(), { listFilesForTask:()=>[] } as any);
+    const events:any[] = [];
+    c.onEvent((e)=>events.push(e));
+    const t = await c.createTask({ goal: 'idle' });
+    const out = await c.runTask(t.task.id);
+    expect(out.task.status).toBe('blocked');
+    expect(events.some((e)=>e.type==='task_blocked' && e.status==='blocked')).toBe(true);
+  });
+
+  it('emits task_failed on provider error', async () => {
+    const provider:any = { createMessage: async () => { throw new Error('boom'); } };
+    const c = new AgentController(provider, { getCurrentSnapshot:()=>null } as any, fakeStore(), { listFilesForTask:()=>[] } as any);
+    const events:any[] = [];
+    c.onEvent((e)=>events.push(e));
+    const t = await c.createTask({ goal: 'fail' });
+    await expect(c.runTask(t.task.id)).rejects.toThrow('boom');
+    expect(events.some((e)=>e.type==='task_failed' && e.status==='error')).toBe(true);
+  });
+});
