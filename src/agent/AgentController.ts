@@ -13,6 +13,7 @@ import type { ActionRecord } from '../shared/types';
 import { hashText } from '../utils/hashing';
 import { modelBackendStore } from '../store/modelBackendStore';
 import { redactActionParams } from '../utils/redaction';
+import { diagnostics } from './diagnostics';
 import type { LocalModelBackendConfig } from '../model/LlamaServerManager';
 
 export type RunBudget={maxTurns:number;maxActions:number;maxMs:number;maxNoProgressTurns:number;maxRepeatedFailures:number;maxConsecutiveReadOnlyTurns:number};
@@ -31,8 +32,8 @@ export class AgentController {
   private proposalRawParams = new Map<string, Record<string, unknown>>();
   constructor(private readonly provider = new LocalOpenAIModelProvider(), private readonly browser = new ManagedBrowser(), private readonly store: TaskStore = taskStore, private readonly files: FileStore = fileStore, private readonly getBackendConfig = (): LocalModelBackendConfig => modelBackendStore.getConfig()) {}
   onEvent(cb: (event: any) => void){ this.listeners.add(cb); return () => this.listeners.delete(cb); }
-  async createTask(input:{goal:string}){ const id=`t_${Date.now()}`; this.store.createTask({id,userGoal:input.goal,status:'idle',pendingUserQuestion:null,finalAnswer:null,pendingProposalId:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}); this.store.saveCompactState(id,createInitialCompactState(input.goal)); return this.getTaskState(id); }
-  private event(taskId:string,type:string,summary:string,refId?:string){ const payload={id:`e_${Date.now()}_${Math.random()}`,taskId,type,summary:sanitize(summary),at:new Date().toISOString(),refId}; this.store.appendEvent(taskId,payload); this.listeners.forEach((l)=>l(payload)); }
+  async createTask(input:{goal:string}){ const id=`t_${Date.now()}`; this.store.createTask({id,userGoal:input.goal,status:'idle',pendingUserQuestion:null,finalAnswer:null,pendingProposalId:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}); this.store.saveCompactState(id,createInitialCompactState(input.goal)); diagnostics.startTaskTrace(id,input.goal,{source:'createTask'}); return this.getTaskState(id); }
+  private event(taskId:string,type:string,summary:string,refId?:string){ const payload={id:`e_${Date.now()}_${Math.random()}`,taskId,type,summary:sanitize(summary),at:new Date().toISOString(),refId}; this.store.appendEvent(taskId,payload); diagnostics.writeEvent(taskId,payload); this.listeners.forEach((l)=>l(payload)); }
   private progressFingerprint(taskId: string, action: any, out: ActionExecutionResult, compact: any) {
     const snapshot = out.browserSnapshot ?? this.browser.getCurrentSnapshot();
     const fp = {
@@ -122,7 +123,7 @@ export class AgentController {
     const packet=buildContextPacket({taskId,userGoal:task.userGoal,currentObjective:compact.currentObjective,compactState:compact,snapshot:this.browser.getCurrentSnapshot(),recentActions:this.store.getActions(taskId).map((a:any)=>({type:a.type,status:a.status,observation:a.observationSummary||a.error||''})),failedAttempts:compact.failedAttempts,fileSummaries:this.files.listFilesForTask(taskId).map((f:any)=>f.summary).filter(Boolean),allowedActionTypes:PLANNER_ALLOWED_ACTION_TYPES,recoveryHint:task.recoveryHint,userAnswers:compact.userProvidedAnswers,pendingUserQuestion:task.pendingUserQuestion,pendingApproval:task.pendingProposalId?this.store.getAction(taskId,task.pendingProposalId):null,noProgressSummary: task.lastProgressFingerprint ? `Recent no-progress count: ${task.noProgressTurns ?? 0}` : undefined,repeatedFailureSummary: task.repeatedFailureCount ? `Repeated failures: ${task.repeatedFailureCount}` : undefined,discouragedActions:recoveryState.discouragedActions ?? [],bannedNextActions:recoveryState.bannedNextActions ?? [],recoveryInstruction:recoveryState.recoveryInstruction});
     this.event(taskId,'model_call_started','Model request started');
     this.configureProvider(taskId);
-    const action=await this.generateActionWithRepair(taskId, packet); this.event(taskId,'model_action_proposed',action.type);
+    const action=await this.generateActionWithRepair(taskId, packet); this.event(taskId,'model_action_proposed',action.type); if (diagnostics.isEnabled()) console.log(`[task ${taskId} step ${this.store.getActions(taskId).length}] model_action ${action.type}`);
     return this.persistProposalAndMaybeExecute(taskId,action);
   }
   private normalizeActionCandidate(input: unknown): unknown {
@@ -143,13 +144,16 @@ export class AgentController {
     return actionSchema.parse(parsed);
   }
   private async generateActionWithRepair(taskId:string, packet:string){
+    const step = typeof (this.store as any).getActions === 'function' ? (this.store as any).getActions(taskId).length + 1 : 1;
+    const startedAt = Date.now();
     const first=await this.provider.generateText(buildActionPrompt(packet));
-    try { return this.parseNormalizeValidate(first); } catch (e) {
+    try { const parsed = this.parseNormalizeValidate(first); await diagnostics.writeModelCall(taskId,{step,promptChars:packet.length,rawModelResponse:first,parsedAction:parsed,durationMs:Date.now()-startedAt,schemaValidationResult:'ok'}); return parsed; } catch (e) {
       this.event(taskId,'model_invalid_output',`first_pass:${sanitize(String((e as Error).message))} raw=${sanitize(first).slice(0,500)}`);
       const repairPrompt=buildRepairPrompt(packet, String((e as Error).message), first.slice(0,1500));
       const second=await this.provider.generateText(repairPrompt);
-      try { return this.parseNormalizeValidate(second); } catch (e2) {
+      try { const parsed2=this.parseNormalizeValidate(second); await diagnostics.writeModelCall(taskId,{step,promptChars:packet.length,rawModelResponse:first,parseError:String((e as Error).message),repairAttempted:true,repairPromptSummary:repairPrompt.slice(0,240),repairResult:second,parsedAction:parsed2,durationMs:Date.now()-startedAt,schemaValidationResult:'ok'}); return parsed2; } catch (e2) {
         this.event(taskId,'model_invalid_output',`repair_pass:${sanitize(String((e2 as Error).message))} raw=${sanitize(second).slice(0,500)}`);
+        await diagnostics.writeModelCall(taskId,{step,promptChars:packet.length,rawModelResponse:first,parseError:String((e as Error).message),repairAttempted:true,repairResult:second,schemaValidationResult:'failed',durationMs:Date.now()-startedAt});
         return actionSchema.parse({type:'ask_user',params:{question:'I could not produce a valid next action automatically. Do you want me to retry or provide a specific next step?'},meta:{reason:'model_invalid_json_repair_failed'}});
       }
     }
@@ -172,13 +176,14 @@ export class AgentController {
       this.event(taskId,'recovery_triggered',`stage=${recoveryState.stage};reason=context_refresh_required;suggested=${suggestion}`);
       return this.getTaskState(taskId);
     }
+    await diagnostics.writeAction(taskId,{kind:'proposal',actionId:proposal.id,taskId,step:this.store.getActions(taskId).length,rawAction:action,normalizedAction:{type:proposal.type,params:proposal.params},permissionDecision:proposal.requiresApproval?'approval_required':'allow',targetSummary:proposal.approvalDetails?.targetSummary,riskReasons:proposal.approvalDetails?.riskReasons,requiresApproval:proposal.requiresApproval,executionAllowed:true});
     if(proposal.requiresApproval && !['read_current_page','ask_user','final_answer'].includes(proposal.type)){ this.store.updateTask(taskId,{status:'waiting_for_approval',pendingProposalId:proposal.id}); this.event(taskId,'approval_required',proposal.type); return this.getTaskState(taskId);} return this.executeProposal(taskId,proposal.id, action);
   }
   async approveAction(taskId:string,proposalId:string){ this.store.updateAction(taskId,proposalId,{status:'approved'}); return this.executeProposal(taskId,proposalId, undefined, true); }
   rejectAction(taskId:string,proposalId:string,reason?:string){ this.store.updateAction(taskId,proposalId,{status:'rejected',rejectionReason:reason}); this.store.updateTask(taskId,{status:'idle',pendingProposalId:null}); return this.getTaskState(taskId); }
   async answerUserQuestion(taskId:string, answer:string){ const t:any=this.store.getTask(taskId); const q=t?.pendingUserQuestion?.question??'question'; this.store.appendAction(taskId,{id:`a_${Date.now()}`,taskId,type:'user_answer',params:{answer},title:'user answer',reason:q,expectedOutcome:'resume',riskLevel:'low',requiresApproval:false,reversible:true,evidenceRefs:[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),status:'completed',observationSummary:answer}); const compact=updateCompactStateAfterObservation(this.store.getCompactState(taskId),'ask_user',q,{answer,ok:true}); this.store.saveCompactState(taskId,compact); this.store.updateTask(taskId,{status:'idle',pendingUserQuestion:null}); return this.getTaskState(taskId); }
-  async executeProposal(taskId:string,proposalId:string, rawAction?: AgentAction, approved = false){ this.store.updateAction(taskId,proposalId,{status:'executing'}); const a:any=this.store.getAction(taskId,proposalId); this.event(taskId,'action_started',a.type,proposalId); let out: ActionExecutionResult;
-    try { const rawParams = rawAction?.params ?? this.proposalRawParams.get(proposalId) ?? a.params; const execAction = { ...a, params: rawParams }; out = await executeAction(execAction,this.browser,()=>{}, { shellCommandApproved: approved && a.type==='run_shell_command', approvedPaths: approved && typeof (execAction?.params?.path) === 'string' ? [String(execAction.params.path)] : undefined }); } catch (e) { this.store.updateTask(taskId,{status:'error',pendingProposalId:null}); this.event(taskId,'action_failed',String(e),proposalId); return this.getTaskState(taskId); }
+  async executeProposal(taskId:string,proposalId:string, rawAction?: AgentAction, approved = false){ const startedAt=Date.now(); this.store.updateAction(taskId,proposalId,{status:'executing'}); const a:any=this.store.getAction(taskId,proposalId); this.event(taskId,'action_started',a.type,proposalId); let out: ActionExecutionResult;
+    try { const rawParams = rawAction?.params ?? this.proposalRawParams.get(proposalId) ?? a.params; const execAction = { ...a, params: rawParams }; out = await executeAction(execAction,this.browser,()=>{}, { shellCommandApproved: approved && a.type==='run_shell_command', approvedPaths: approved && typeof (execAction?.params?.path) === 'string' ? [String(execAction.params.path)] : undefined }); if (out.browserSnapshot) await diagnostics.writeBrowserSnapshot(taskId, out.browserSnapshot); await diagnostics.writeObservation(taskId,{actionId:proposalId,actionType:a.type,ok:out.ok,observationSummary:out.observationSummary,error:out.error}); } catch (e) { this.store.updateTask(taskId,{status:'error',pendingProposalId:null}); this.event(taskId,'action_failed',String(e),proposalId); return this.getTaskState(taskId); }
     this.store.updateAction(taskId,proposalId,out.ok?{status:'completed',observationSummary:out.observationSummary,evidenceRefs:out.evidenceRefs}:{status:'failed',error:out.error ?? out.observationSummary,observationSummary:out.observationSummary,evidenceRefs:out.evidenceRefs});
     if(out.browserSnapshot){ const ev={id:`snapshot:${out.browserSnapshot.snapshotId}`,type:'snapshot',snapshotId:out.browserSnapshot.snapshotId,url:out.browserSnapshot.url,title:out.browserSnapshot.title,capturedAt:new Date().toISOString(),visibleTextSummary:out.browserSnapshot.visibleTextSummary,candidates:(out.browserSnapshot.clickableCandidates||[]).slice(0,6).map((c:any)=>c.label||c.text)}; this.store.saveEvidence(taskId,ev); this.event(taskId,'observation_recorded',ev.id); }
     const compact=updateCompactStateAfterObservation(this.store.getCompactState(taskId),a.type,out.observationSummary,{evidenceRefs:out.evidenceRefs,question:(a.params||{}).question,ok:out.ok}); this.store.saveCompactState(taskId,compact); this.event(taskId,'compact_state_updated',a.type);
@@ -222,6 +227,8 @@ export class AgentController {
       this.store.updateTask(taskId,{status:recoverable ? 'idle' : 'error',pendingProposalId:null,recoveryHint: recoverable ? `Recover from failure: ${normalizeObs(out.error || out.observationSummary)}` : undefined,recoveryState:recoveryPatch});
       this.event(taskId,recoverable ? 'action_failed' : 'action_failed',out.observationSummary,proposalId);
     } else this.store.updateTask(taskId,{status:'idle',pendingProposalId:null,recoveryState:recoveryPatch});
+    await diagnostics.writeAction(taskId,{kind:'execution',actionId:proposalId,actionType:a.type,startedAt:new Date(startedAt).toISOString(),endedAt:new Date().toISOString(),durationMs:Date.now()-startedAt,success:out.ok,errorCode:out.error??null,observationSummary:out.observationSummary,resultMetadata:{changedPageState:out.changedPageState,evidenceCount:out.evidenceRefs?.length ?? 0}});
+    if (diagnostics.isEnabled()) console.log(`[task ${taskId} step ${this.store.getActions(taskId).length}] action_${out.ok?'success':'failed'} ${a.type} ${out.error??'none'}`);
     this.event(taskId,out.ok?'action_completed':'action_failed',out.observationSummary,proposalId);
     this.proposalRawParams.delete(proposalId);
     return this.getTaskState(taskId);

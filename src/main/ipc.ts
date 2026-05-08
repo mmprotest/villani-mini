@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, ipcMain, clipboard, shell } from 'electron';
 import { agentController } from '../agent/AgentController';
 import { ingestFile } from '../files/FileIngestion';
 import { fileStore } from '../store/fileStore';
@@ -6,6 +6,7 @@ import { LlamaServerManager, type LocalModelBackendConfig } from '../model/Llama
 import { modelBackendStore } from '../store/modelBackendStore';
 import { chatController } from './ChatController';
 import { LocalAssetManager } from '../model/LocalAssetManager';
+import { diagnostics } from '../agent/diagnostics';
 
 const manager = new LlamaServerManager();
 const assets = new LocalAssetManager();
@@ -75,5 +76,8 @@ export function registerIpc(win: BrowserWindow){
   ipcMain.handle('browser:getStatus', ()=>agentController.getBrowserStatus());
   ipcMain.handle('browser:openUrl', async (_,url:string)=>agentController.openBrowserUrl(String(url||'')));
   ipcMain.handle('browser:readCurrentPage', ()=>agentController.readCurrentPage());
+
+  ipcMain.handle('task:openDebugFolder', async (_,taskId:string)=>{ const dir=diagnostics.getTaskDebugDir(String(taskId)); if(!dir) return {ok:false,error:'missing_debug_dir'}; const out=await shell.openPath(dir); return {ok:!out,dir,error:out||null}; });
+  ipcMain.handle('task:copyDebugSummary', async (_,taskId:string)=>{ const s=agentController.getTaskState(String(taskId)); const lastAction=s.actions[s.actions.length-1]; const lastError=s.actions.filter((a:any)=>a.status==='failed').slice(-1)[0]?.error ?? null; const summary={taskId:s.task.id,goal:s.task.userGoal,status:s.task.status,backend:modelBackendStore.getConfig().endpointUrl,model:modelBackendStore.getConfig().modelName,stepCount:s.actions.length,lastAction:lastAction?.type ?? null,lastErrorCode:lastError,recentEvents:s.events.slice(-8),approvals:s.actions.filter((a:any)=>a.status==='approved'||a.requiresApproval).slice(-8),finalAnswer:s.task.finalAnswer?.summary,blockReason:s.task.finalAnswer?.blockedReason}; const text=JSON.stringify(summary,null,2); clipboard.writeText(text); return {ok:true,summary:text}; });
 
 }
