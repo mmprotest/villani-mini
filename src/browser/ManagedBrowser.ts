@@ -3,6 +3,36 @@ import { extractClickableCandidates, extractFormFields } from './candidateExtrac
 import type { BrowserSnapshot, ClickableCandidate, FormFieldCandidate } from '../shared/types';
 import { createBrowserSnapshot } from './browserSnapshot';
 
+export interface ManagedBrowserHealth {
+  ok: boolean;
+  status: 'ready' | 'missing_browser' | 'launch_failed';
+  message: string;
+  suggestedCommand?: string;
+  error?: string;
+}
+
+const PLAYWRIGHT_INSTALL_COMMAND = 'npx playwright install chromium';
+
+export function normalizePlaywrightLaunchError(error: unknown): ManagedBrowserHealth {
+  const message = error instanceof Error ? error.message : String(error);
+  const compact = message.split('\n').map((line) => line.trim()).filter(Boolean)[0] ?? 'Playwright launch failed';
+  const missing = /executable doesn't exist|playwright install|browser .*not found/i.test(message);
+  if (missing) {
+    return { ok: false, status: 'missing_browser', message: 'Playwright Chromium is not installed.', suggestedCommand: PLAYWRIGHT_INSTALL_COMMAND, error: compact };
+  }
+  return { ok: false, status: 'launch_failed', message: 'Playwright Chromium failed to launch.', error: compact };
+}
+
+export async function checkManagedBrowserReady(): Promise<ManagedBrowserHealth> {
+  try {
+    const browser = await chromium.launch({ headless: true });
+    await browser.close();
+    return { ok: true, status: 'ready', message: 'Playwright Chromium is ready.' };
+  } catch (error) {
+    return normalizePlaywrightLaunchError(error);
+  }
+}
+
 type ResolveError = 'stale' | 'missing' | 'ambiguous' | 'invisible' | 'disabled';
 
 export class ManagedBrowser {

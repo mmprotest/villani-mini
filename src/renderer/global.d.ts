@@ -30,6 +30,7 @@ declare global {
         retryAssets: () => Promise<any>;
         retryBackend: () => Promise<any>;
         retryAll: () => Promise<any>;
+        getStatus: () => Promise<any>;
       };
       task: {
         list: () => Promise<any[]>;
@@ -48,6 +49,7 @@ declare global {
         getStatus: () => Promise<any>;
         openUrl: (url: string) => Promise<any>;
         readCurrentPage: () => Promise<any>;
+        installDependencies: () => Promise<any>;
       };
       config: {
         getBackendConfig: () => Promise<any>;
