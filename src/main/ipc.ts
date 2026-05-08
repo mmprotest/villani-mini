@@ -62,7 +62,7 @@ export function registerIpc(win: BrowserWindow){
 
   ipcMain.handle('chat:getHistory', ()=>chatController.getHistory());
   ipcMain.handle('chat:sendMessage', async (_,text:string)=>{ const out = await chatController.sendMessage(String(text||'')); win.webContents.send('chat:updated', out); return out; });
-  ipcMain.handle('chat:approve', async (_,taskId:string,proposalId:string)=>{ const s=await agentController.approveAction(taskId,proposalId); const out=chatController.appendTaskResult(s); win.webContents.send('chat:updated', out); return out; });
+  ipcMain.handle('chat:approve', async (_,taskId:string,proposalId:string)=>{ let s=await agentController.approveAction(taskId,proposalId); if (!['completed','blocked','waiting_for_approval','waiting_for_user','error','stopped'].includes(s.task.status)) s = await agentController.runTask(taskId); const out=chatController.appendTaskResult(s); win.webContents.send('chat:updated', out); return out; });
   ipcMain.handle('chat:reject', async (_,taskId:string,proposalId:string,reason?:string)=>{ const s=agentController.rejectAction(taskId,proposalId,reason); const out=chatController.appendTaskResult(s); win.webContents.send('chat:updated', out); return out; });
   ipcMain.handle('chat:answer', async (_,taskId:string,answer:string)=>{ await agentController.answerUserQuestion(taskId,answer); const s=await agentController.runTask(taskId); const out=chatController.appendTaskResult(s); win.webContents.send('chat:updated', out); return out; });
 

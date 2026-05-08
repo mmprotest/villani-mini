@@ -4,7 +4,7 @@ import { executeAction, type ActionExecutionResult } from '../actions/actionExec
 import { ManagedBrowser } from '../browser/ManagedBrowser';
 import { actionSchema, PLANNER_ALLOWED_ACTION_TYPES, type AgentAction } from '../actions/actionSchemas';
 import { scoreRisk } from '../actions/riskScoring';
-import { evaluateActionPermission, requiresApproval } from '../actions/permissionEngine';
+import { evaluateActionPermission } from '../actions/permissionEngine';
 import { buildActionPrompt, buildContextPacket, buildRepairPrompt } from './contextPacket';
 import { jsonRepair } from '../model/jsonRepair';
 import { TaskStore, taskStore } from '../store/taskStore';
@@ -12,6 +12,7 @@ import { FileStore, fileStore } from '../store/fileStore';
 import type { ActionRecord } from '../shared/types';
 import { hashText } from '../utils/hashing';
 import { modelBackendStore } from '../store/modelBackendStore';
+import { redactActionParams } from '../utils/redaction';
 import type { LocalModelBackendConfig } from '../model/LlamaServerManager';
 
 export type RunBudget={maxTurns:number;maxActions:number;maxMs:number;maxNoProgressTurns:number;maxRepeatedFailures:number;maxConsecutiveReadOnlyTurns:number};
@@ -27,6 +28,7 @@ const FORCE_REFRESH_ACTIONS = ['read_current_page', 'observe_desktop'] as const;
 
 export class AgentController {
   private listeners = new Set<(event: any) => void>();
+  private proposalRawParams = new Map<string, Record<string, unknown>>();
   constructor(private readonly provider = new LocalOpenAIModelProvider(), private readonly browser = new ManagedBrowser(), private readonly store: TaskStore = taskStore, private readonly files: FileStore = fileStore, private readonly getBackendConfig = (): LocalModelBackendConfig => modelBackendStore.getConfig()) {}
   onEvent(cb: (event: any) => void){ this.listeners.add(cb); return () => this.listeners.delete(cb); }
   async createTask(input:{goal:string}){ const id=`t_${Date.now()}`; this.store.createTask({id,userGoal:input.goal,status:'idle',pendingUserQuestion:null,finalAnswer:null,pendingProposalId:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}); this.store.saveCompactState(id,createInitialCompactState(input.goal)); return this.getTaskState(id); }
@@ -152,8 +154,8 @@ export class AgentController {
       }
     }
   }
-  private makeRecord(taskId:string, action:AgentAction): ActionRecord { const now=new Date().toISOString(); return {id:`p_${Date.now()}_${Math.random()}`,taskId,type:action.type,params:(action.params ?? {}) as Record<string, unknown>,title:action.meta?.title??action.type,reason:action.meta?.reason??'proposed',expectedOutcome:action.meta?.expectedOutcome??'progress',riskLevel:action.meta?.riskLevel??scoreRisk(JSON.stringify(action),'low'),requiresApproval:action.meta?.requiresApproval??requiresApproval(action.type,action.params,'low'),reversible:action.meta?.reversible??true,evidenceRefs:action.meta?.evidenceRefs??(Array.isArray((action.params as any).evidenceRefs)?(action.params as any).evidenceRefs:[]),createdAt:now,updatedAt:now,status:'proposed'}; }
-  private async persistProposalAndMaybeExecute(taskId:string, action:AgentAction){ const proposal=this.makeRecord(taskId, action); this.store.appendAction(taskId,proposal); this.event(taskId,'model_action_proposed',proposal.type,proposal.id);
+  private makeRecord(taskId:string, action:AgentAction): ActionRecord { const now=new Date().toISOString(); const riskLevel=action.meta?.riskLevel??scoreRisk(JSON.stringify(action),'low'); const permission=evaluateActionPermission(action.type, (action.params ?? {}) as Record<string, unknown>, riskLevel, { snapshot: this.browser.getCurrentSnapshot() ?? undefined }); if(!permission.canExecute){ throw new Error(permission.failureReason || 'action_not_executable'); } const safeParams=redactActionParams(action.type, (action.params ?? {}) as Record<string, unknown>, permission.riskReasons); return {id:`p_${Date.now()}_${Math.random()}`,taskId,type:action.type,params:safeParams,title:action.meta?.title??action.type,reason:action.meta?.reason??'proposed',expectedOutcome:action.meta?.expectedOutcome??'progress',riskLevel,requiresApproval:permission.requiresApproval,reversible:action.meta?.reversible??true,evidenceRefs:action.meta?.evidenceRefs??(Array.isArray((action.params as any).evidenceRefs)?(action.params as any).evidenceRefs:[]),createdAt:now,updatedAt:now,status:'proposed',approvalDetails:{targetSummary:permission.targetSummary,riskReasons:permission.riskReasons}}; }
+  private async persistProposalAndMaybeExecute(taskId:string, action:AgentAction){ let proposal: ActionRecord; try { proposal=this.makeRecord(taskId, action); } catch (e:any) { this.event(taskId,'recoverable_planning_error',String(e?.message||e)); this.store.updateTask(taskId,{status:'idle'}); return this.getTaskState(taskId);}  this.store.appendAction(taskId,proposal); this.event(taskId,'model_action_proposed',proposal.type,proposal.id);
     const task:any = this.store.getTask(taskId);
     const recoveryState = task?.recoveryState ?? {};
     if (recoveryState.stage >= 2 && recoveryState.bannedNextActionSignature && this.actionCoreSignature(action) === recoveryState.bannedNextActionSignature) {
@@ -170,13 +172,13 @@ export class AgentController {
       this.event(taskId,'recovery_triggered',`stage=${recoveryState.stage};reason=context_refresh_required;suggested=${suggestion}`);
       return this.getTaskState(taskId);
     }
-    if(proposal.requiresApproval && !['read_current_page','ask_user','final_answer'].includes(proposal.type)){ this.store.updateTask(taskId,{status:'waiting_for_approval',pendingProposalId:proposal.id}); this.event(taskId,'approval_required',proposal.type); return this.getTaskState(taskId);} return this.executeProposal(taskId,proposal.id);
+    if(proposal.requiresApproval && !['read_current_page','ask_user','final_answer'].includes(proposal.type)){ this.store.updateTask(taskId,{status:'waiting_for_approval',pendingProposalId:proposal.id}); this.event(taskId,'approval_required',proposal.type); return this.getTaskState(taskId);} return this.executeProposal(taskId,proposal.id, action);
   }
-  async approveAction(taskId:string,proposalId:string){ this.store.updateAction(taskId,proposalId,{status:'approved'}); return this.executeProposal(taskId,proposalId); }
+  async approveAction(taskId:string,proposalId:string){ this.store.updateAction(taskId,proposalId,{status:'approved'}); return this.executeProposal(taskId,proposalId, undefined, true); }
   rejectAction(taskId:string,proposalId:string,reason?:string){ this.store.updateAction(taskId,proposalId,{status:'rejected',rejectionReason:reason}); this.store.updateTask(taskId,{status:'idle',pendingProposalId:null}); return this.getTaskState(taskId); }
   async answerUserQuestion(taskId:string, answer:string){ const t:any=this.store.getTask(taskId); const q=t?.pendingUserQuestion?.question??'question'; this.store.appendAction(taskId,{id:`a_${Date.now()}`,taskId,type:'user_answer',params:{answer},title:'user answer',reason:q,expectedOutcome:'resume',riskLevel:'low',requiresApproval:false,reversible:true,evidenceRefs:[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),status:'completed',observationSummary:answer}); const compact=updateCompactStateAfterObservation(this.store.getCompactState(taskId),'ask_user',q,{answer,ok:true}); this.store.saveCompactState(taskId,compact); this.store.updateTask(taskId,{status:'idle',pendingUserQuestion:null}); return this.getTaskState(taskId); }
-  async executeProposal(taskId:string,proposalId:string){ this.store.updateAction(taskId,proposalId,{status:'executing'}); const a:any=this.store.getAction(taskId,proposalId); this.event(taskId,'action_started',a.type,proposalId); let out: ActionExecutionResult;
-    try { out = await executeAction(a,this.browser,()=>{}); } catch (e) { this.store.updateTask(taskId,{status:'error',pendingProposalId:null}); this.event(taskId,'action_failed',String(e),proposalId); return this.getTaskState(taskId); }
+  async executeProposal(taskId:string,proposalId:string, rawAction?: AgentAction, approved = false){ this.store.updateAction(taskId,proposalId,{status:'executing'}); const a:any=this.store.getAction(taskId,proposalId); this.event(taskId,'action_started',a.type,proposalId); let out: ActionExecutionResult;
+    try { const rawParams = rawAction?.params ?? this.proposalRawParams.get(proposalId) ?? a.params; const execAction = { ...a, params: rawParams }; out = await executeAction(execAction,this.browser,()=>{}, { shellCommandApproved: approved && a.type==='run_shell_command', approvedPaths: approved && typeof (execAction?.params?.path) === 'string' ? [String(execAction.params.path)] : undefined }); } catch (e) { this.store.updateTask(taskId,{status:'error',pendingProposalId:null}); this.event(taskId,'action_failed',String(e),proposalId); return this.getTaskState(taskId); }
     this.store.updateAction(taskId,proposalId,out.ok?{status:'completed',observationSummary:out.observationSummary,evidenceRefs:out.evidenceRefs}:{status:'failed',error:out.error ?? out.observationSummary,observationSummary:out.observationSummary,evidenceRefs:out.evidenceRefs});
     if(out.browserSnapshot){ const ev={id:`snapshot:${out.browserSnapshot.snapshotId}`,type:'snapshot',snapshotId:out.browserSnapshot.snapshotId,url:out.browserSnapshot.url,title:out.browserSnapshot.title,capturedAt:new Date().toISOString(),visibleTextSummary:out.browserSnapshot.visibleTextSummary,candidates:(out.browserSnapshot.clickableCandidates||[]).slice(0,6).map((c:any)=>c.label||c.text)}; this.store.saveEvidence(taskId,ev); this.event(taskId,'observation_recorded',ev.id); }
     const compact=updateCompactStateAfterObservation(this.store.getCompactState(taskId),a.type,out.observationSummary,{evidenceRefs:out.evidenceRefs,question:(a.params||{}).question,ok:out.ok}); this.store.saveCompactState(taskId,compact); this.event(taskId,'compact_state_updated',a.type);
@@ -221,6 +223,7 @@ export class AgentController {
       this.event(taskId,recoverable ? 'action_failed' : 'action_failed',out.observationSummary,proposalId);
     } else this.store.updateTask(taskId,{status:'idle',pendingProposalId:null,recoveryState:recoveryPatch});
     this.event(taskId,out.ok?'action_completed':'action_failed',out.observationSummary,proposalId);
+    this.proposalRawParams.delete(proposalId);
     return this.getTaskState(taskId);
   }
   stopTask(taskId:string){ this.store.updateTask(taskId,{status:'stopped'}); return this.getTaskState(taskId); }

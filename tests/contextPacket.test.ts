@@ -22,8 +22,8 @@ test('context packet includes action schemas and examples for allowed actions',(
   });
   const p=JSON.parse(s);
   expect(p.actionProtocol).toHaveLength(13);
-  expect(p.actionProtocol.find((a:any)=>a.action==='click_candidate').schema).toHaveProperty('candidateId');
-  expect(p.actionProtocol.find((a:any)=>a.action==='fill_field').example).toHaveProperty('fieldId');
+  expect(p.actionProtocol.find((a:any)=>a.action==='click_candidate').schema.params).toHaveProperty('candidateId');
+  expect(p.actionProtocol.find((a:any)=>a.action==='fill_field').example.params).toHaveProperty('fieldId');
   expect(p.decisionRules.join(' ')).toContain('bannedNextActions');
   expect(p.recoveryRules.join(' ')).toContain('different action class');
 });
