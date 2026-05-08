@@ -17,8 +17,11 @@ export type ChatMessage = {
   actionType?: string;
   targetSummary?: string;
   riskReasons?: string[];
+  redactedInput?: Record<string, unknown>;
+  approvalDetails?: Record<string, unknown>;
   questionId?: string;
   actionId?: string;
+  toolUseId?: string;
 };
 
 const key = 'chatHistory';
@@ -89,16 +92,23 @@ export class ChatController {
       });
     }
     if (state.task.status === 'waiting_for_approval') {
+      const pending = state.task.pendingApproval;
+      if (!pending) return this.getHistory();
+      const proposalId = pending.proposalId ?? pending.toolUseId;
+      console.log(`[chat] approval message updated taskId=${taskId} proposalId=${proposalId ?? 'missing'} target="${pending.targetSummary ?? ''}"`);
       return this.updateById(progress.id, {
         type: 'task_progress',
         status: 'waiting_for_approval',
-        text: `Approve action: ${state.pendingProposal?.title ?? state.pendingProposal?.type ?? 'action'}`,
+        text: `Approval required: ${pending.toolName} ${pending.targetSummary ?? ''}`.trim(),
         taskId,
-        proposalId: state.task.pendingProposalId,
-        actionId: state.task.pendingProposalId,
-        actionType: state.pendingProposal?.type,
-        targetSummary: state.pendingProposal?.title ?? state.pendingProposal?.targetSummary,
-        riskReasons: state.pendingProposal?.risk?.reasons ?? state.pendingProposal?.riskReasons ?? []
+        proposalId,
+        toolUseId: pending.toolUseId,
+        actionId: proposalId,
+        actionType: pending.toolName,
+        targetSummary: pending.targetSummary,
+        riskReasons: pending.riskReasons ?? [],
+        redactedInput: pending.redactedInput ?? {},
+        approvalDetails: pending.approvalDetails
       });
     }
     if (state.task.status === 'completed') return this.updateById(progress.id, { type:'task_progress', status: 'completed', text: state.finalAnswer?.summary ?? 'Done.', taskId });
@@ -114,7 +124,11 @@ export class ChatController {
     if (event.type === 'task_completed') return this.updateById(progress.id, { type:'task_progress', status:'completed', text:event.finalAnswer ?? event.summary ?? 'Done.', taskId });
     if (event.type === 'task_blocked') return this.updateById(progress.id, { type:'task_progress', status:'blocked', text:event.blockedReason ?? 'Task blocked.', taskId });
     if (event.type === 'task_failed') return this.updateById(progress.id, { type:'task_progress', status:'error', text:event.message ?? 'Task failed due to an internal error.', taskId });
-    if (event.type === 'approval_required') return this.updateById(progress.id, { type:'task_progress', status:'waiting_for_approval', text:`Approve action: ${event.summary ?? event.toolName ?? 'action'}`, taskId, proposalId:event.proposalId ?? event.toolUseId, actionId:event.proposalId ?? event.toolUseId });
+    if (event.type === 'approval_required') {
+      const proposalId = event.proposalId ?? event.toolUseId;
+      console.log(`[chat] approval message updated taskId=${taskId} proposalId=${proposalId ?? 'missing'} target="${event.targetSummary ?? ''}"`);
+      return this.updateById(progress.id, { type:'task_progress', status:'waiting_for_approval', text:`Approval required: ${event.toolName} ${event.targetSummary ?? ''}`.trim(), taskId, proposalId, toolUseId:event.toolUseId, actionId:proposalId, actionType:event.toolName, targetSummary:event.targetSummary, riskReasons:event.riskReasons ?? [], redactedInput:event.redactedInput ?? {}, approvalDetails:event.approvalDetails });
+    }
     if (event.type === 'user_question_required') return this.updateById(progress.id, { type:'task_progress', status:'waiting_for_user', text:event.question ?? event.summary ?? 'Need input', taskId, questionId:event.questionId ?? event.toolUseId, actionId:event.questionId ?? event.toolUseId, options:event.options ?? [] });
     return this.getHistory();
   }

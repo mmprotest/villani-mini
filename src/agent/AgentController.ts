@@ -24,9 +24,25 @@ export class AgentController {
       return { pause: 'user' as const };
     }
     const approveSet = new Set(['open_path', 'write_file', 'run_shell_command', 'click_candidate', 'fill_field']);
-    if (approveSet.has(tool.name)) { this.store.updateTask(taskId, { status: 'waiting_for_approval', pendingApproval: { toolUseId: tool.id, toolName: tool.name, input: tool.input } }); this.emit(taskId, 'approval_required', `${tool.name} requires approval`, { status: 'waiting_for_approval', toolName: tool.name, proposalId: tool.id, toolUseId: tool.id }); return { pause: 'approval' as const }; }
+    if (approveSet.has(tool.name)) {
+      const details = this.buildApprovalMetadata(taskId, tool);
+      this.store.updateTask(taskId, { status: 'waiting_for_approval', pendingApproval: details });
+      console.log(`[approval ${taskId}] required proposalId=${details.proposalId} tool=${details.toolName} target="${details.targetSummary ?? ''}"`);
+      this.emit(taskId, 'approval_required', `${tool.name} requires approval`, { status: 'waiting_for_approval', proposalId: details.proposalId, toolUseId: details.toolUseId, toolName: details.toolName, targetSummary: details.targetSummary, riskReasons: details.riskReasons, redactedInput: details.redactedInput, approvalDetails: details.approvalDetails });
+      return { pause: 'approval' as const };
+    }
     const out = await executeAction({ id: `a_${Date.now()}`, taskId, type: tool.name, params: tool.input } as any, this.browser, ()=>{});
     return { pause: null, content: out.ok ? out.observationSummary : `Error: ${out.error ?? out.observationSummary}`, isError: !out.ok };
+  }
+  private buildApprovalMetadata(taskId: string, tool: ToolUseBlock) {
+    const input: any = tool.input ?? {};
+    const base = { taskId, proposalId: tool.id, toolUseId: tool.id, toolName: tool.name, input, redactedInput: {} as Record<string, unknown>, targetSummary: '', riskReasons: [] as string[], approvalDetails: {} as Record<string, unknown> };
+    if (tool.name === 'open_path') return { ...base, targetSummary: String(input.path ?? ''), redactedInput: { path: String(input.path ?? '') }, riskReasons: ['Opening a local file or folder requires approval.'] };
+    if (tool.name === 'run_shell_command') { const cmd = String(input.command ?? ''); return { ...base, targetSummary: cmd.slice(0, 120), redactedInput: { command: cmd.slice(0, 120), cwd: input.cwd, timeoutMs: input.timeoutMs }, riskReasons: ['Running shell commands requires approval.'] }; }
+    if (tool.name === 'write_file') { const content = String(input.content ?? ''); const path = String(input.path ?? ''); return { ...base, targetSummary: path, redactedInput: { path, contentPreview: '[redacted]', contentLength: content.length }, riskReasons: ['Writing files requires approval.'] }; }
+    if (tool.name === 'fill_field') return { ...base, targetSummary: String(input.fieldLabel ?? input.selector ?? input.fieldId ?? 'form field'), redactedInput: { ...input, value: '[redacted]' }, riskReasons: ['Filling form fields requires approval.'] };
+    if (tool.name === 'click_candidate') return { ...base, targetSummary: String(input.candidateId ?? input.target ?? 'browser candidate'), redactedInput: input, riskReasons: ['Clicking page elements requires approval.'] };
+    return base;
   }
   async runTask(taskId:string,_options?:any){ this.store.updateTask(taskId,{status:'running'}); let emptyTurns = 0;
     try {
@@ -56,7 +72,7 @@ export class AgentController {
       throw error;
     }
   }
-  async approveAction(taskId:string,_proposalId?:string){ const t:any=this.store.getTask(taskId); const p=t.pendingApproval; if(!p) return this.getTaskState(taskId); const out = await executeAction({ id:`a_${Date.now()}`, taskId, type:p.toolName, params:p.input } as any, this.browser, ()=>{}, { shellCommandApproved: p.toolName==='run_shell_command', approvedPaths: p.input.path?[String(p.input.path)]:undefined }); this.appendToolResult(taskId,p.toolUseId,out.ok?out.observationSummary:`Error: ${out.error ?? out.observationSummary}`,!out.ok); this.store.updateTask(taskId,{pendingApproval:null,status:'idle'}); return this.runTask(taskId); }
+  async approveAction(taskId:string,proposalId?:string){ const t:any=this.store.getTask(taskId); const p=t.pendingApproval; if(!p) return this.getTaskState(taskId); const matched = proposalId && (proposalId===p.proposalId || proposalId===p.toolUseId); if(!matched) throw new Error(`approval_id_mismatch: expected ${p.proposalId ?? p.toolUseId}, got ${proposalId ?? 'missing'}`); const out = await executeAction({ id:`a_${Date.now()}`, taskId, type:p.toolName, params:p.input } as any, this.browser, ()=>{}, { shellCommandApproved: p.toolName==='run_shell_command', approvedPaths: p.input.path?[String(p.input.path)]:undefined }); this.appendToolResult(taskId,p.toolUseId,out.ok?out.observationSummary:`Error: ${out.error ?? out.observationSummary}`,!out.ok); this.store.updateTask(taskId,{pendingApproval:null,status:'idle'}); return this.runTask(taskId); }
   rejectAction(taskId:string,_proposalId?:string,reason?:string){ const t:any=this.store.getTask(taskId); const p=t.pendingApproval; if(!p) return this.getTaskState(taskId); this.appendToolResult(taskId,p.toolUseId,`User rejected this action. Reason: ${reason ?? 'none'}.`,true); this.store.updateTask(taskId,{pendingApproval:null,status:'idle'}); return this.runTask(taskId); }
   async answerUserQuestion(taskId:string, answer:string){ const t:any=this.store.getTask(taskId); const q=t.pendingUserQuestion; if(!q) return this.getTaskState(taskId); this.appendToolResult(taskId,q.toolUseId,`User answered: ${answer}`,false); const compact=updateCompactStateAfterObservation(this.store.getCompactState(taskId),'ask_user',q.question,{answer,ok:true}); this.store.saveCompactState(taskId,compact); this.store.updateTask(taskId,{pendingUserQuestion:null,status:'idle'}); return this.runTask(taskId); }
   async stepTask(taskId:string){ return this.runTask(taskId); }

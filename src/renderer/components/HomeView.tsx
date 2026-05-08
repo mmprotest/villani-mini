@@ -6,7 +6,7 @@ type Task = { id: string; status: string; createdAt?: string; finalAnswer?: { bl
 type TaskState = { task: Task; actions?: Array<{ type: string; status: string; createdAt?: string; observationSummary?: string; error?: string }>; events?: Array<{ summary: string; at: string }>; finalAnswer?: any; errors?: string[] };
 
 type TaskEvent = Record<string, any>;
-type ChatMessage = { id: string; type?: string; role?: string; text?: string; content?: string; status?: string; taskId?: string; proposalId?: string; actionId?: string; questionId?: string; actionType?: string; targetSummary?: string; riskReasons?: string[]; paramsPreview?: Record<string, unknown> };
+type ChatMessage = { id: string; type?: string; role?: string; text?: string; content?: string; status?: string; taskId?: string; proposalId?: string; toolUseId?: string; actionId?: string; questionId?: string; actionType?: string; targetSummary?: string; riskReasons?: string[]; redactedInput?: Record<string, unknown>; paramsPreview?: Record<string, unknown> };
 type TraceRow = {
   timestamp: string;
   eventType: string;
@@ -185,8 +185,10 @@ export default function HomeView() {
         <div className='panel'>{messages.length === 0 && ready ? <p>Villani Mini is ready. Ask for managed browser steps or approved local actions.</p> : messages.slice(-8).map((m) => {
           const msgType = m.type || m.role;
           if (m.status === 'waiting_for_approval') {
-            const missing = !m.taskId || !(m.proposalId || m.actionId);
-            return <div key={m.id} className={`msg ${msgType}`}><b>Approval needed</b><div>{m.actionType || m.text || m.content}</div><div className='subtle'>{m.targetSummary || 'No target summary'}</div>{Array.isArray(m.riskReasons) && m.riskReasons.length > 0 && <div className='subtle'>Risks: {m.riskReasons.join(', ')}</div>}<div className='row-actions'><button disabled={missing || sending} onClick={async()=>{ if(!m.taskId || !(m.proposalId||m.actionId)) return; setSending(true); setResponseError(''); try { const out = await window.villani.chat.approve(m.taskId, String(m.proposalId||m.actionId)); setMessages(out); } catch (e:any) { setResponseError(String(e?.message||e)); } finally { setSending(false);} }}>Approve</button><button className='ghost' disabled={missing || sending} onClick={async()=>{ if(!m.taskId || !(m.proposalId||m.actionId)) return; setSending(true); setResponseError(''); try { const out = await window.villani.chat.reject(m.taskId, String(m.proposalId||m.actionId)); setMessages(out); } catch (e:any) { setResponseError(String(e?.message||e)); } finally { setSending(false);} }}>Reject</button></div>{missing && <div className='subtle'>Missing metadata: taskId/proposalId.</div>}</div>;
+            const approvalId = m.proposalId ?? m.toolUseId ?? m.actionId;
+            const missing = !m.taskId || !approvalId;
+            if (!missing) console.log(`[renderer] approval card enabled taskId=${m.taskId} approvalId=${approvalId}`);
+            return <div key={m.id} className={`msg ${msgType}`}><b>Approval needed</b><div>{m.actionType || m.text || m.content}</div><div className='subtle'>{m.targetSummary}</div>{Array.isArray(m.riskReasons) && m.riskReasons.length > 0 && <div className='subtle'>Risks: {m.riskReasons.join(', ')}</div>}{m.redactedInput && <pre className='subtle'>{JSON.stringify(m.redactedInput, null, 2)}</pre>}<div className='row-actions'><button disabled={missing || sending} onClick={async()=>{ if(!m.taskId || !approvalId) return; setSending(true); setResponseError(''); try { const out = await window.villani.chat.approve(m.taskId, String(approvalId)); setMessages(out); } catch (e:any) { setResponseError(String(e?.message||e)); } finally { setSending(false);} }}>Approve</button><button className='ghost' disabled={missing || sending} onClick={async()=>{ if(!m.taskId || !approvalId) return; setSending(true); setResponseError(''); try { const out = await window.villani.chat.reject(m.taskId, String(approvalId)); setMessages(out); } catch (e:any) { setResponseError(String(e?.message||e)); } finally { setSending(false);} }}>Reject</button></div>{missing && <div className='subtle'>Missing metadata: taskId/proposalId.</div>}</div>;
           }
           if (m.status === 'waiting_for_user') {
             const missing = !m.taskId || !(m.questionId || m.actionId);
