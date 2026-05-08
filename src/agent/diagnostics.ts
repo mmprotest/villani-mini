@@ -96,6 +96,15 @@ export const diagnostics = {
       fields: (snapshot?.fields ?? snapshot?.formFields ?? []).slice(0, 200).map((f: any) => ({ id: f.id, label: sanitizeString(String(f.label ?? '')), type: f.type, sensitive: f.sensitive, bounds: f.boundingBox }))
     };
     await writeJsonl(taskId, 'observations.jsonl', { type: 'browser_snapshot', ...slim });
+    const t = await ensureTask(taskId); if (!t) return;
+    if (!slim.snapshotId) return;
+    try {
+      await fs.writeFile(path.join(t.taskDir, 'browser_snapshots', `${String(slim.snapshotId)}.json`), JSON.stringify(safe(slim), null, 2), 'utf8');
+    } catch {}
+  },
+  async writeCurrentSummary(taskId: string, summary: Record<string, unknown>) {
+    const t = await ensureTask(taskId); if (!t) return;
+    try { await fs.writeFile(path.join(t.taskDir, 'current_summary.json'), JSON.stringify(safe(summary), null, 2)); } catch {}
   },
   async writeArtifact(taskId: string, name: string, data: Buffer | string | Record<string, unknown>) {
     const t = await ensureTask(taskId); if (!t) return;

@@ -24,7 +24,7 @@ describe('AgentController action repair flow', () => {
   it('uses repair turn and returns valid action', async () => {
     const provider:any = { request: async () => ({ choices:[{ message:{ tool_calls:[{ function:{ name:'read_current_page', arguments:'{}' } }] } }] }) };
     const events:any[] = [];
-    const store:any = { appendEvent: (_id:string, ev:any) => events.push(ev) };
+    const store:any = { appendEvent: (_id:string, ev:any) => events.push(ev), getActions: () => [] };
     const controller:any = new AgentController(provider, {} as any, store, {} as any);
     const action = await controller.generateActionWithRepair('t1', '{"allowedActions":["read_current_page"]}');
     expect(action.type).toBe('read_current_page');
@@ -33,7 +33,7 @@ describe('AgentController action repair flow', () => {
 
   it('does not invent candidate IDs during normalization', async () => {
     const provider:any = { request: async () => ({ choices:[{ message:{ tool_calls:[{ function:{ name:'ask_user', arguments:'{"question":"q"}' } }] } }] }) };
-    const store:any = { appendEvent: () => {} };
+    const store:any = { appendEvent: () => {}, getActions: () => [] };
     const controller:any = new AgentController(provider, {} as any, store, {} as any);
     const action = await controller.generateActionWithRepair('t1', '{}');
     expect(action.type).toBe('ask_user');

@@ -84,9 +84,25 @@ export class AgentController {
   private isRiskyAction(actionType: string) {
     return !['read_current_page', 'observe_desktop', 'ask_user', 'final_answer'].includes(actionType);
   }
-  async runTask(taskId:string, options?:Partial<RunBudget>){ const b={...DEFAULT_BUDGET,...options}; logger.logTask(taskId,null,'run_started',{maxSteps:b.maxTurns,maxActions:b.maxActions}); const start=Date.now(); let turns=0,actions=0,noProgress=0,repeatedFail=0,lastFp=''; this.store.updateTask(taskId,{status:'running'}); this.event(taskId,'task_started','Task run started');
-    while(true){ if(Date.now()-start>b.maxMs || turns>=b.maxTurns || actions>=b.maxActions){ const blockedReason = noProgress>0 ? 'no_progress' : 'budget_exhausted'; this.store.updateTask(taskId,{status:'blocked',finalAnswer:{summary:blockedReason==='no_progress'?'Blocked due to repeated no-progress loop.':'Budget exhausted.',evidenceRefs:[],remainingSteps:['Refine objective and retry'],uncertainty:'high',blockedReason}}); this.event(taskId,'task_blocked',blockedReason); return this.getTaskState(taskId);} 
-      const s:any=await this.stepTask(taskId); turns++; actions=s.actions.length;
+  private actionTimeoutMs() {
+    const configured = Number(process.env.VILLANI_MINI_ACTION_TIMEOUT_MS ?? '');
+    if (Number.isFinite(configured) && configured > 0) return Math.floor(configured);
+    return (logger.isDev() ? 30000 : 45000);
+  }
+  private async withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => Promise<void>) {
+    let timer: NodeJS.Timeout | null = null;
+    const timeout = new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('model_call_timeout')), ms);
+    });
+    try { return await Promise.race([promise, timeout]); }
+    catch (e: any) { if (String(e?.message || '') === 'model_call_timeout') await onTimeout(); throw e; }
+    finally { if (timer) clearTimeout(timer); }
+  }
+  async runTask(taskId:string, options?:Partial<RunBudget>){ const b={...DEFAULT_BUDGET,...options}; logger.logTask(taskId,null,'run_started',{maxSteps:b.maxTurns,maxActions:b.maxActions,actionTimeoutMs:this.actionTimeoutMs()}); const start=Date.now(); let turns=0,actions=0,noProgress=0,repeatedFail=0,lastFp=''; this.store.updateTask(taskId,{status:'running'}); this.event(taskId,'task_started','Task run started');
+    while(true){ if(Date.now()-start>b.maxMs || turns>=b.maxTurns || actions>=b.maxActions){ const blockedReason = noProgress>0 ? 'no_progress' : 'budget_exhausted'; this.store.updateTask(taskId,{status:'blocked',finalAnswer:{summary:blockedReason==='no_progress'?'Blocked due to repeated no-progress loop.':'Budget exhausted.',evidenceRefs:[],remainingSteps:['Refine objective and retry'],uncertainty:'high',blockedReason}}); this.event(taskId,'task_blocked',blockedReason); await diagnostics.finishTaskTrace(taskId,{taskId,status:'blocked',errorCode:blockedReason,rootCauseCategory:'loop_recovery'}); return this.getTaskState(taskId);} 
+      let s:any;
+      try { s=await this.stepTask(taskId); } catch { return this.getTaskState(taskId); }
+      turns++; actions=s.actions.length;
       if(['completed','blocked','waiting_for_approval','waiting_for_user','stopped','error'].includes(s.task.status)) return s;
       const last=s.actions[s.actions.length-1];
       const failedKey = last?.status==='failed' ? `${last.type}:${hashText(JSON.stringify(normalize(last.params ?? {})))}:${normalizeObs(last.error || last.observationSummary || '')}` : '';
@@ -108,6 +124,7 @@ export class AgentController {
         this.event(taskId,'recovery_triggered',hint);
         this.store.updateTask(taskId,{status:'blocked',recoveryHint:hint,finalAnswer:{summary:'Blocked after repeated failure/no-progress loop.',evidenceRefs:[],remainingSteps:['Take a different approach'],uncertainty:'high',blockedReason:reason}});
         this.event(taskId,'task_blocked',reason);
+        await diagnostics.finishTaskTrace(taskId,{taskId,status:'blocked',errorCode:reason,rootCauseCategory:'loop_recovery'});
         return this.getTaskState(taskId);
       }
     }
@@ -125,7 +142,20 @@ export class AgentController {
     const packet=buildContextPacket({taskId,userGoal:task.userGoal,currentObjective:compact.currentObjective,compactState:compact,snapshot:this.browser.getCurrentSnapshot(),recentActions:this.store.getActions(taskId).map((a:any)=>({type:a.type,status:a.status,observation:a.observationSummary||a.error||''})),failedAttempts:compact.failedAttempts,fileSummaries:this.files.listFilesForTask(taskId).map((f:any)=>f.summary).filter(Boolean),allowedActionTypes:PLANNER_ALLOWED_ACTION_TYPES,recoveryHint:task.recoveryHint,userAnswers:compact.userProvidedAnswers,pendingUserQuestion:task.pendingUserQuestion,pendingApproval:task.pendingProposalId?this.store.getAction(taskId,task.pendingProposalId):null,noProgressSummary: task.lastProgressFingerprint ? `Recent no-progress count: ${task.noProgressTurns ?? 0}` : undefined,repeatedFailureSummary: task.repeatedFailureCount ? `Repeated failures: ${task.repeatedFailureCount}` : undefined,discouragedActions:recoveryState.discouragedActions ?? [],bannedNextActions:recoveryState.bannedNextActions ?? [],recoveryInstruction:recoveryState.recoveryInstruction});
     this.event(taskId,'model_call_started','Model request started'); logger.logModel(taskId,this.store.getActions(taskId).length,'call_started',{provider:'local',...this.getBackendConfig()});
     this.configureProvider(taskId);
-    const action=await this.generateActionWithRepair(taskId, packet); this.event(taskId,'model_action_proposed',action.type); if (diagnostics.isEnabled()) console.log(`[task ${taskId} step ${this.store.getActions(taskId).length}] model_action ${action.type}`);
+    let action: AgentAction;
+    try {
+      action = await this.generateActionWithRepair(taskId, packet);
+    } catch (e: any) {
+      if (String(e?.message || '').includes('model_call_timeout')) {
+        this.store.updateTask(taskId,{status:'blocked',finalAnswer:{summary:'Blocked: model call timed out.',evidenceRefs:[],remainingSteps:['Retry task or reduce scope'],uncertainty:'high',blockedReason:'model_call_timeout'}});
+        this.event(taskId,'task_blocked','model_call_timeout');
+        await diagnostics.finishTaskTrace(taskId,{taskId,status:'blocked',errorCode:'model_call_timeout',rootCauseCategory:'backend'});
+        throw e;
+      }
+      await diagnostics.writeModelCall(taskId,{kind:'model_call_failed',taskId,step:this.store.getActions(taskId).length,durationMs:0,errorCode:'model_call_failed',message:String(e?.message ?? e)});
+      throw e;
+    }
+    this.event(taskId,'model_action_proposed',action.type); if (diagnostics.isEnabled()) console.log(`[task ${taskId} step ${this.store.getActions(taskId).length}] model_action ${action.type}`);
     return this.persistProposalAndMaybeExecute(taskId,action);
   }
   private normalizeActionCandidate(input: unknown): unknown {
@@ -149,15 +179,21 @@ export class AgentController {
     const step = typeof (this.store as any).getActions === 'function' ? (this.store as any).getActions(taskId).length : 0;
     const startedAt = Date.now();
     const tools = buildActionTools(PLANNER_ALLOWED_ACTION_TYPES);
-    logger.logModel(taskId,step,'tool_calling enabled',{tools:tools.length,tool_choice:'required'});
+    const timeoutMs = this.actionTimeoutMs();
+    logger.logModel(taskId,step,'call_started',{afterAction:this.store.getActions(taskId).slice(-1)[0]?.type ?? null,tools:true,maxTokens:256,timeoutMs,temperature:0,toolChoice:'required'});
+    await diagnostics.writeModelCall(taskId,{kind:'model_call_started',taskId,step,startedAt:new Date(startedAt).toISOString(),provider:'local',endpointUrl:this.getBackendConfig().endpointUrl,model:this.getBackendConfig().modelName ?? 'local-model',usesTools:true,toolChoice:'required',toolCount:tools.length,temperature:0,maxTokens:256,promptChars:buildActionPrompt(packet).length});
     let response:any;
     try {
-      response = await (this.provider as any).request?.([{ role: 'system', content: buildActionPrompt(packet) }, { role: 'user', content: 'Choose the next action.' }], { temperature: 0, max_tokens: 256, tools, tool_choice: 'required' });
+      response = await this.withTimeout((this.provider as any).request?.([{ role: 'system', content: buildActionPrompt(packet) }, { role: 'user', content: 'Choose the next action.' }], { temperature: 0, max_tokens: 256, tools, tool_choice: 'required' }), timeoutMs, async () => {
+        console.log(`[model ${taskId} step ${step}] timeout durationMs=${timeoutMs}`);
+        await diagnostics.writeModelCall(taskId,{kind:'model_call_failed',taskId,step,durationMs:timeoutMs,errorCode:'model_call_timeout',message:'Action planner timed out'});
+      });
     if (!response && typeof (this.provider as any).generateText === 'function') {
       const txt = await (this.provider as any).generateText(buildActionPrompt(packet), { temperature: 0, max_tokens: 256 });
       return this.parseNormalizeValidate(txt);
     }
     } catch (e:any) {
+      if (String(e?.message || '').includes('model_call_timeout')) throw e;
       if (String(e?.message||'').includes('400')) {
         logger.logWarn(`model ${taskId} step ${step}`,'tool_choice required unsupported, falling back to auto');
         response = await (this.provider as any).request?.([{ role: 'system', content: buildActionPrompt(packet) }, { role: 'user', content: 'Choose the next action.' }], { temperature: 0, max_tokens: 256, tools, tool_choice: 'auto' });
@@ -174,15 +210,27 @@ export class AgentController {
       const parsed = parseToolCallToAction(tc);
       logger.logModel(taskId,step,'tool_call',{name: tc?.function?.name ?? tc?.name, args: tc?.function?.arguments ?? tc?.arguments});
       logger.logModel(taskId,step,'parsed_action',{type:parsed.type,valid:true});
+      await diagnostics.writeModelCall(taskId,{kind:'model_call_completed',taskId,step,durationMs:Date.now()-startedAt,rawResponsePreview:JSON.stringify(response).slice(0,600),toolCalls,contentPreview:String(msg?.content ?? '').slice(0,240),parsedAction:parsed,parseError:null,fallbackUsed:false});
+      logger.logModel(taskId,step,'call_completed',{durationMs:Date.now()-startedAt,toolCalls:1,contentChars:String(msg?.content ?? '').length});
       return parsed;
     }
     logger.logWarn(`model ${taskId} step ${step}`,'no_tool_calls_fallback_to_text_parse',{preview: String(msg?.content ?? '').slice(0,240)});
     const first = String(msg?.content ?? '') || await this.provider.generateText(buildActionPrompt(packet), { temperature: 0, max_tokens: 256 });
-    try { return this.parseNormalizeValidate(first); } catch (e) {
+    try {
+      const parsed = this.parseNormalizeValidate(first);
+      await diagnostics.writeModelCall(taskId,{kind:'model_call_completed',taskId,step,durationMs:Date.now()-startedAt,rawResponsePreview:JSON.stringify(response).slice(0,600),toolCalls:[],contentPreview:first.slice(0,240),parsedAction:parsed,parseError:null,fallbackUsed:true});
+      return parsed;
+    } catch (e) {
       const repairPrompt=buildRepairPrompt(packet, String((e as Error).message), first.slice(0,1500));
-      const second=await this.provider.generateText(repairPrompt, { temperature: 0, max_tokens: 256 });
-      try { return this.parseNormalizeValidate(second); } catch {
-        return actionSchema.parse({type:'ask_user',params:{question:'I could not produce a valid next action automatically. Do you want me to retry or provide a specific next step?'},meta:{reason:'model_invalid_json_repair_failed'}});
+      const second=await this.provider.generateText(repairPrompt, { temperature: 0, max_tokens: 128 });
+      try {
+        const parsed = this.parseNormalizeValidate(second);
+        await diagnostics.writeModelCall(taskId,{kind:'model_call_completed',taskId,step,durationMs:Date.now()-startedAt,rawResponsePreview:second.slice(0,600),toolCalls:[],contentPreview:second.slice(0,240),parsedAction:parsed,parseError:null,fallbackUsed:true});
+        return parsed;
+      } catch {
+        const fallback = actionSchema.parse({type:'ask_user',params:{question:'I could not produce a valid next action automatically. Do you want me to retry or provide a specific next step?'},meta:{reason:'model_invalid_json_repair_failed'}});
+        await diagnostics.writeModelCall(taskId,{kind:'model_call_completed',taskId,step,durationMs:Date.now()-startedAt,rawResponsePreview:second.slice(0,600),toolCalls:[],contentPreview:second.slice(0,240),parsedAction:fallback,parseError:'repair_failed',fallbackUsed:true});
+        return fallback;
       }
     }
   }
@@ -211,7 +259,7 @@ export class AgentController {
   rejectAction(taskId:string,proposalId:string,reason?:string){ logger.logApproval(taskId,'rejected',{actionId:proposalId,reason}); this.store.updateAction(taskId,proposalId,{status:'rejected',rejectionReason:reason}); this.store.updateTask(taskId,{status:'idle',pendingProposalId:null}); return this.getTaskState(taskId); }
   async answerUserQuestion(taskId:string, answer:string){ const t:any=this.store.getTask(taskId); const q=t?.pendingUserQuestion?.question??'question'; this.store.appendAction(taskId,{id:`a_${Date.now()}`,taskId,type:'user_answer',params:{answer},title:'user answer',reason:q,expectedOutcome:'resume',riskLevel:'low',requiresApproval:false,reversible:true,evidenceRefs:[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),status:'completed',observationSummary:answer}); const compact=updateCompactStateAfterObservation(this.store.getCompactState(taskId),'ask_user',q,{answer,ok:true}); this.store.saveCompactState(taskId,compact); this.store.updateTask(taskId,{status:'idle',pendingUserQuestion:null}); return this.getTaskState(taskId); }
   async executeProposal(taskId:string,proposalId:string, rawAction?: AgentAction, approved = false){ const startedAt=Date.now(); this.store.updateAction(taskId,proposalId,{status:'executing'}); const a:any=this.store.getAction(taskId,proposalId); this.event(taskId,'action_started',a.type,proposalId); let out: ActionExecutionResult;
-    try { logger.logAction(taskId,this.store.getActions(taskId).length,'executing',{type:a.type}); const rawParams = rawAction?.params ?? this.proposalRawParams.get(proposalId) ?? a.params; const execAction = { ...a, params: rawParams }; out = await executeAction(execAction,this.browser,()=>{}, { shellCommandApproved: approved && a.type==='run_shell_command', approvedPaths: approved && typeof (execAction?.params?.path) === 'string' ? [String(execAction.params.path)] : undefined }); if (out.browserSnapshot) await diagnostics.writeBrowserSnapshot(taskId, out.browserSnapshot); await diagnostics.writeObservation(taskId,{actionId:proposalId,actionType:a.type,ok:out.ok,observationSummary:out.observationSummary,error:out.error}); } catch (e) { logger.logAction(taskId,this.store.getActions(taskId).length,'failed',{type:a.type,errorCode:'execution_exception',message:String((e as Error).message)}); this.store.updateTask(taskId,{status:'error',pendingProposalId:null}); this.event(taskId,'action_failed',String(e),proposalId); return this.getTaskState(taskId); }
+    try { logger.logAction(taskId,this.store.getActions(taskId).length,'executing',{type:a.type}); const rawParams = rawAction?.params ?? this.proposalRawParams.get(proposalId) ?? a.params; const execAction = { ...a, params: rawParams }; out = await executeAction(execAction,this.browser,()=>{}, { shellCommandApproved: approved && a.type==='run_shell_command', approvedPaths: approved && typeof (execAction?.params?.path) === 'string' ? [String(execAction.params.path)] : undefined }); if (out.browserSnapshot) await diagnostics.writeBrowserSnapshot(taskId, out.browserSnapshot); await diagnostics.writeObservation(taskId,{actionId:proposalId,actionType:a.type,ok:out.ok,observationSummary:out.observationSummary,error:out.error}); } catch (e) { logger.logAction(taskId,this.store.getActions(taskId).length,'failed',{type:a.type,errorCode:'execution_exception',message:String((e as Error).message)}); this.store.updateTask(taskId,{status:'error',pendingProposalId:null}); this.event(taskId,'action_failed',String(e),proposalId); await diagnostics.finishTaskTrace(taskId,{taskId,status:'error',errorCode:'execution_exception',rootCauseCategory:'unknown'}); return this.getTaskState(taskId); }
     const step = this.store.getActions(taskId).length;
     if (!out.ok && out.errorCode === 'playwright_browser_missing') { logger.logAction(taskId,step,'failed',{type:a.type,errorCode:out.errorCode,message:out.error,suggestedFix:out.suggestedCommand});
       console.log(`[task ${taskId} step ${step}] action_failed ${a.type} errorCode=playwright_browser_missing`);
@@ -251,12 +299,13 @@ export class AgentController {
         this.store.updateTask(taskId,{status:'blocked',pendingProposalId:null,recoveryHint:reason,recoveryState:recoveryPatch,finalAnswer:{summary:reason,evidenceRefs:out.evidenceRefs ?? [],remainingSteps:['Re-scope task or provide new constraints'],uncertainty:'high',blockedReason:'recovery_exhausted'}});
         this.event(taskId,'recovery_triggered',`stage=4;reason=recovery_exhausted;banned=${a.type};suggested=final_answer_blocked`);
         this.event(taskId,'task_blocked','recovery_exhausted');
+        await diagnostics.finishTaskTrace(taskId,{taskId,status:'blocked',errorCode:'recovery_exhausted',rootCauseCategory:'loop_recovery'});
         return this.getTaskState(taskId);
       }
     }
 
     if(a.type==='ask_user'&&out.ok){ this.store.updateTask(taskId,{status:'waiting_for_user',pendingUserQuestion:{question:a.params.question,options:a.params.options||[]},recoveryState:recoveryPatch}); this.event(taskId,'user_question',a.params.question); }
-    else if(a.type==='final_answer'&&out.ok){ const fa:any={...a.params}; const hasEvidence=Array.isArray(fa.evidenceRefs) && fa.evidenceRefs.every((r:string)=>this.store.getEvidence(taskId).some((e:any)=>e.id===r)); if(fa.blockedReason || hasEvidence){ this.store.updateTask(taskId,{status:fa.blockedReason?'blocked':'completed',finalAnswer:fa}); this.event(taskId,fa.blockedReason?'task_blocked':'task_completed',fa.summary); } else { this.store.updateTask(taskId,{status:'blocked',finalAnswer:{...fa,blockedReason:'missing_evidence'}}); }
+    else if(a.type==='final_answer'&&out.ok){ const fa:any={...a.params}; const hasEvidence=Array.isArray(fa.evidenceRefs) && fa.evidenceRefs.every((r:string)=>this.store.getEvidence(taskId).some((e:any)=>e.id===r)); if(fa.blockedReason || hasEvidence){ this.store.updateTask(taskId,{status:fa.blockedReason?'blocked':'completed',finalAnswer:fa}); this.event(taskId,fa.blockedReason?'task_blocked':'task_completed',fa.summary); await diagnostics.finishTaskTrace(taskId,{taskId,status:fa.blockedReason?'blocked':'completed',errorCode:fa.blockedReason ?? null,rootCauseCategory:'unknown'}); } else { this.store.updateTask(taskId,{status:'blocked',finalAnswer:{...fa,blockedReason:'missing_evidence'}}); await diagnostics.finishTaskTrace(taskId,{taskId,status:'blocked',errorCode:'missing_evidence',rootCauseCategory:'model_output'}); }
     } else if (!out.ok) {
       const recoverable = this.isRecoverableActionFailure(out, a);
       this.store.updateTask(taskId,{status:recoverable ? 'idle' : 'error',pendingProposalId:null,recoveryHint: recoverable ? `Recover from failure: ${normalizeObs(out.error || out.observationSummary)}` : undefined,recoveryState:recoveryPatch});
@@ -268,7 +317,7 @@ export class AgentController {
     this.proposalRawParams.delete(proposalId);
     return this.getTaskState(taskId);
   }
-  stopTask(taskId:string){ this.store.updateTask(taskId,{status:'stopped'}); return this.getTaskState(taskId); }
+  stopTask(taskId:string){ this.store.updateTask(taskId,{status:'stopped'}); diagnostics.finishTaskTrace(taskId,{taskId,status:'stopped',rootCauseCategory:'unknown'}); return this.getTaskState(taskId); }
   getTaskState(taskId:string){ const task=this.store.getTask(taskId); if(!task) throw new Error('task_not_found'); const actions=this.store.getActions(taskId); return {task,compactState:this.store.getCompactState(taskId),actions,events:this.store.getEvents(taskId),evidence:this.store.getEvidence(taskId),files:this.files.listFilesForTask(taskId),browserStatus:this.browser.getCurrentSnapshot(),pendingProposal:actions.find((a:any)=>a.id===task.pendingProposalId),finalAnswer:task.finalAnswer,errors:actions.filter((a:any)=>a.status==='failed').map((a:any)=>a.error)}; }
   listTasks(){ return this.store.listTasks(); }
   getBrowserStatus(){ return this.browser.getCurrentSnapshot() ?? null; }
