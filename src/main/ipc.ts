@@ -9,6 +9,7 @@ import { LocalAssetManager } from '../model/LocalAssetManager';
 import { diagnostics } from '../agent/diagnostics';
 import { checkManagedBrowserReady } from '../browser/ManagedBrowser';
 import { spawn } from 'node:child_process';
+import { logger } from '../diagnostics/logger';
 
 const manager = new LlamaServerManager();
 const assets = new LocalAssetManager();
@@ -17,14 +18,14 @@ const emit = (win: BrowserWindow)=>win.webContents.send('modelBackend:statusUpda
 let browserAutomationStatus: 'ready'|'missing_browser'|'launch_failed'|'unchecked' = 'unchecked';
 
 export async function runBrowserAutomationHealthCheck(){
-  console.log('[setup] browser automation: checking Playwright Chromium');
+  logger.logSetup('browser automation: checking Playwright Chromium');
   const health = await checkManagedBrowserReady();
   browserAutomationStatus = health.status;
-  if (health.status === 'ready') console.log('[setup] browser automation: ready');
+  if (health.status === 'ready') logger.logSetup('browser automation: ready');
   else if (health.status === 'missing_browser') {
-    console.log('[setup] browser automation: missing Playwright Chromium');
-    console.log(`[setup] browser automation: suggested fix: ${health.suggestedCommand}`);
-  } else console.log(`[setup] browser automation: launch failed: ${health.error ?? health.message}`);
+    logger.logWarn('setup','browser automation: missing Playwright Chromium');
+    logger.logSetup(`browser automation: suggested fix: ${health.suggestedCommand}`);
+  } else logger.logWarn('setup',`browser automation: launch failed: ${health.error ?? health.message}`);
   return health;
 }
 
@@ -77,14 +78,14 @@ export function registerIpc(win: BrowserWindow){
   ipcMain.handle('modelBackend:updateConfig', async (_,patch:Partial<LocalModelBackendConfig>)=>{ const cfg={...modelBackendStore.getConfig(),...patch}; modelBackendStore.saveConfig(cfg); return cfg; });
 
   ipcMain.handle('chat:getHistory', ()=>chatController.getHistory());
-  ipcMain.handle('chat:sendMessage', async (_,text:string)=>{ const out = await chatController.sendMessage(String(text||'')); win.webContents.send('chat:updated', out); return out; });
-  ipcMain.handle('chat:approve', async (_,taskId:string,proposalId:string)=>{ let s=await agentController.approveAction(taskId,proposalId); if (!['completed','blocked','waiting_for_approval','waiting_for_user','error','stopped'].includes(s.task.status)) s = await agentController.runTask(taskId); const out=chatController.appendTaskResult(s); win.webContents.send('chat:updated', out); return out; });
-  ipcMain.handle('chat:reject', async (_,taskId:string,proposalId:string,reason?:string)=>{ const s=agentController.rejectAction(taskId,proposalId,reason); const out=chatController.appendTaskResult(s); win.webContents.send('chat:updated', out); return out; });
+  ipcMain.handle('chat:sendMessage', async (_,text:string)=>{ logger.logIpc('chat:sendMessage received',{chars:String(text||'').length,preview:String(text||'').slice(0,80)}); const out = await chatController.sendMessage(String(text||'')); win.webContents.send('chat:updated', out); return out; });
+  ipcMain.handle('chat:approve', async (_,taskId:string,proposalId:string)=>{ logger.logIpc('chat:approve',{taskId,actionId:proposalId}); let s=await agentController.approveAction(taskId,proposalId); if (!['completed','blocked','waiting_for_approval','waiting_for_user','error','stopped'].includes(s.task.status)) s = await agentController.runTask(taskId); const out=chatController.appendTaskResult(s); win.webContents.send('chat:updated', out); return out; });
+  ipcMain.handle('chat:reject', async (_,taskId:string,proposalId:string,reason?:string)=>{ logger.logIpc('chat:reject',{taskId,actionId:proposalId}); const s=agentController.rejectAction(taskId,proposalId,reason); const out=chatController.appendTaskResult(s); win.webContents.send('chat:updated', out); return out; });
   ipcMain.handle('chat:answer', async (_,taskId:string,answer:string)=>{ await agentController.answerUserQuestion(taskId,answer); const s=await agentController.runTask(taskId); const out=chatController.appendTaskResult(s); win.webContents.send('chat:updated', out); return out; });
 
   ipcMain.handle('task:list', ()=>agentController.listTasks());
   ipcMain.handle('task:getState', async (_,taskId)=> taskId ? agentController.getTaskState(String(taskId)) : err('invalid_input','taskId required'));
-  ipcMain.handle('task:run', async (_,taskId,options)=> taskId ? agentController.runTask(String(taskId),options||{}) : err('invalid_input','taskId required'));
+  ipcMain.handle('task:run', async (_,taskId,options)=> { logger.logIpc('task:run',{taskId:String(taskId||'')}); return taskId ? agentController.runTask(String(taskId),options||{}) : err('invalid_input','taskId required'); });
   ipcMain.handle('task:step', async (_,taskId)=> taskId ? agentController.stepTask(String(taskId)) : err('invalid_input','taskId required'));
   ipcMain.handle('task:stop', async (_,taskId)=> taskId ? agentController.stopTask(String(taskId)) : err('invalid_input','taskId required'));
   ipcMain.handle('task:attachFile', async (_,taskId,filePath)=>{ if(!taskId) return err('invalid_input','taskId required'); const rec=await ingestFile(String(filePath)); fileStore.saveFileRecord(String(taskId),rec); return rec; });

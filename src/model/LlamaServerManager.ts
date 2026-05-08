@@ -2,6 +2,7 @@ import { ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { logger } from '../diagnostics/logger';
 
 export type LocalModelBackendConfig = {
   mode: 'bundled_llama_server' | 'external_openai_compatible';
@@ -100,7 +101,8 @@ export class LlamaServerManager {
     if (this.child && this.child.exitCode == null) { this.logInfo('backend process already running, skipping duplicate spawn',{pid:this.child.pid}); }
     if (this.child && this.child.exitCode == null) {
       const deadline = Date.now()+15_000;
-      while(Date.now()<deadline){ if(await this.checkHealthy(endpointUrl)){ this.state.status='running'; return this.getStatus(); } await sleep(500); }
+      logger.logBackend('health check',{url:`${endpointUrl}/models`,timeoutMs:60000});
+    while(Date.now()<deadline){ if(await this.checkHealthy(endpointUrl)){ this.state.status='running'; logger.logBackend('health check ready',{status:200,baseUrl:endpointUrl.replace(/\/v1$/,'')}); return this.getStatus(); } await sleep(500); }
       this.state.status='failed'; this.state.lastError='Existing backend process is running but unhealthy';
       return this.getStatus();
     }
@@ -108,7 +110,7 @@ export class LlamaServerManager {
     const modelPath = this.discoverModel(config);
     this.state.modelPath = modelPath;
     this.state.llamaServerPath = binary;
-    this.logInfo('starting llama-server',{binaryPath:binary,modelPath,baseUrl:endpointUrl.replace(/\/v1$/,'')});
+    this.logInfo('starting llama-server',{binaryPath:binary,modelPath,baseUrl:endpointUrl.replace(/\/v1$/,'')}); logger.logBackend('starting llama-server',{exe:binary,model:modelPath,baseUrl:endpointUrl.replace(/\/v1$/,''),cwd:process.cwd()});
     if(!modelPath){ this.state.status='not_configured'; this.state.missingModel=true; this.state.lastError='Missing GGUF model file'; return this.getStatus(); }
     const args = ['--model', modelPath, '--host', config.host ?? '127.0.0.1', '--port', String(config.port ?? 34783), '--ctx-size', String(config.ctxSize ?? 8192)];
     if(config.threads) args.push('--threads', String(config.threads));
@@ -117,13 +119,14 @@ export class LlamaServerManager {
     this.child = spawn(binary, args, { stdio:['ignore','pipe','pipe'] });
     this.attachedExternal = false;
     this.state.processMode='spawned';
-    this.state.pid = this.child.pid;
-    this.child.stdout?.on('data',(d)=>this.pushLog(String(d).trim()));
-    this.child.stderr?.on('data',(d)=>this.pushLog(String(d).trim()));
-    this.child.on('exit',(code)=>{ if(this.state.status!=='stopped'){ this.state.status='failed'; this.state.lastError=`llama-server exited (${code ?? 'unknown'})`; this.logInfo('llama-server exit',{code:code ?? 'unknown'}); }});
+    this.state.pid = this.child.pid; logger.logBackend('spawned',{pid:this.child.pid});
+    this.child.stdout?.on('data',(d)=>{ const line=String(d).trim(); this.pushLog(line); if (logger.flags.backendStdio && line) logger.logInfo('llama stdout', line); });
+    this.child.stderr?.on('data',(d)=>{ const line=String(d).trim(); this.pushLog(line); if (line) this.state.lastError = line; if (logger.flags.backendStdio && line) logger.logWarn('llama stderr', line); });
+    this.child.on('exit',(code,signal)=>{ if(this.state.status!=='stopped'){ this.state.status='failed'; this.state.lastError=`llama-server exited (${code ?? 'unknown'})`; this.logInfo('llama-server exit',{code:code ?? 'unknown'}); logger.logWarn('backend','llama-server exited',{code:code ?? 'unknown',signal:signal ?? null,lastStderr:this.state.lastError}); }});
     const deadline = Date.now()+60_000;
-    while(Date.now()<deadline){ if(await this.checkHealthy(endpointUrl)){ this.state.status='running'; return this.getStatus(); } await sleep(500); }
-    this.state.status='failed'; this.state.lastError='Timed out waiting for model backend';
+    logger.logBackend('health check',{url:`${endpointUrl}/models`,timeoutMs:60000});
+    while(Date.now()<deadline){ if(await this.checkHealthy(endpointUrl)){ this.state.status='running'; logger.logBackend('health check ready',{status:200,baseUrl:endpointUrl.replace(/\/v1$/,'')}); return this.getStatus(); } await sleep(500); }
+    this.state.status='failed'; this.state.lastError='Timed out waiting for model backend'; logger.logError('backend','health check failed',{lastError:this.state.lastError,lastStderr:this.state.lastError});
     return this.getStatus();
   }
 
