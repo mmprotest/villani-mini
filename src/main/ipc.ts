@@ -11,7 +11,7 @@ import { checkManagedBrowserReady } from '../browser/ManagedBrowser';
 import { spawn } from 'node:child_process';
 import { logger } from '../diagnostics/logger';
 import { BrowserMissionRunner } from '../agent/browserRunner/BrowserMissionRunner';
-import { browserViewportManager, type ViewportBounds } from './browserViewportManager';
+import { browserSessionController, type BrowserViewportBounds } from './BrowserSessionController';
 
 const manager = new LlamaServerManager();
 const browserMissionRunner = new BrowserMissionRunner();
@@ -56,6 +56,7 @@ export function getModelBackendManager(){ return manager; }
 export function getAssetManager(){ return assets; }
 
 export function registerIpc(win: BrowserWindow){
+  browserSessionController.setWindow(win);
   browserMissionRunner.onEvent((event)=>win.webContents.send('browserMission:event',event));
   agentController.onEvent((event)=>{
     win.webContents.send('task:event', event);
@@ -111,12 +112,13 @@ export function registerIpc(win: BrowserWindow){
     });
   });
 
-  ipcMain.handle('browser:attachToViewport', (_, bounds: ViewportBounds)=>browserViewportManager.setBounds(win, bounds));
-  ipcMain.handle('browser:show', ()=>browserViewportManager.show(win));
-  ipcMain.handle('browser:hide', ()=>browserViewportManager.hide(win));
-  ipcMain.handle('browser:getViewportStatus', ()=>browserViewportManager.getStatus());
-  ipcMain.handle('browser:openUrl', async (_,url:string)=>{ const next = String(url||''); await browserViewportManager.openUrl(win, next); return agentController.openBrowserUrl(next); });
-  ipcMain.handle('browser:readCurrentPage', ()=>agentController.readCurrentPage());
+  ipcMain.handle('browser:attachToViewport', (_, bounds: BrowserViewportBounds)=>browserSessionController.attachToViewport(bounds));
+  ipcMain.handle('browser:show', ()=>browserSessionController.show());
+  ipcMain.handle('browser:hide', ()=>browserSessionController.hide());
+  ipcMain.handle('browser:getViewportStatus', ()=>browserSessionController.getStatus());
+  ipcMain.handle('browser:openUrl', (_,url:string)=>browserSessionController.openUrl(String(url||'')));
+  ipcMain.handle('browser:readCurrentPage', ()=>browserSessionController.readCurrentPage());
+  ipcMain.handle('browser:extractLinks', ()=>browserSessionController.extractLinks());
 
 
   ipcMain.handle('browserMission:start', (_,input:any)=>browserMissionRunner.start(input));
