@@ -22,16 +22,24 @@ type Props = {
 };
 
 export default function BrowserWorkspace(props: Props) {
+  const frameUrl = props.urlInput.trim() || props.url;
   return <section className='browser-workspace panel'>
     <div className='browser-workspace-header'>BROWSER WORKSPACE</div>
     <div className='browser-frame'>
       <BrowserChrome title={props.title || 'Research Session'} urlInput={props.urlInput} setUrlInput={props.setUrlInput} onOpenUrl={props.onOpenUrl} onReadPage={props.onReadPage} disabled={props.busy} />
       <div className='browser-viewport'>
-        <div className='browser-viewport-empty'>
-          <b>Browser viewport will attach here</b>
-          <div className='subtle'>URL: {props.url || 'n/a'}</div>
-          <div className='subtle'>Status: {props.statusText}</div>
-        </div>
+        {frameUrl
+          ? <iframe
+              title='Managed browser mirror'
+              src={frameUrl}
+              className='browser-viewport-frame'
+              referrerPolicy='no-referrer'
+              sandbox='allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts'
+            />
+          : <div className='browser-viewport-empty'>
+              <b>Open a URL to start browser automation</b>
+              <div className='subtle'>Status: {props.statusText}</div>
+            </div>}
       </div>
     </div>
     <BrowserTaskTranscript entries={props.transcript} />

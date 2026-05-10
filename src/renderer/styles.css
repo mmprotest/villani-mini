@@ -62,6 +62,7 @@ pre { white-space: pre-wrap; color: var(--dim); }
 .browser-toolbar { display: grid; grid-template-columns: auto auto auto minmax(0,1fr) auto; gap: 8px; padding: 8px; }
 .browser-url-bar { background: #0f1116; border: 1px solid var(--border-soft); border-radius: 10px; padding: 8px; width: 100%; }
 .browser-viewport { min-height: 280px; background: #0a0b0d; display: grid; place-items: center; }
+.browser-viewport-frame { width: 100%; min-height: 560px; border: 0; background: #fff; }
 .browser-viewport-empty { border: 1px dashed var(--border-soft); border-radius: 10px; padding: 16px; background: var(--panel); width: min(460px, 95%); }
 .browser-transcript { background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: 12px; padding: 10px; }
 .browser-transcript-row { border-top: 1px solid var(--border-soft); padding: 8px 0; }
