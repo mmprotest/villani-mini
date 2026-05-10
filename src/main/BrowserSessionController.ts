@@ -4,6 +4,7 @@ import { createBrowserSnapshot } from '../browser/browserSnapshot';
 
 export type BrowserViewportBounds = { x:number; y:number; width:number; height:number; deviceScaleFactor?:number };
 export type BrowserLink = { index:number; text:string; href:string; visible:boolean };
+type ExtractionPayload = { url?: string; title?: string; visibleText?: string; links?: BrowserLink[] };
 export type BrowserSessionState = { attached:boolean; visible:boolean; url:string; title:string; hasBounds:boolean; ready:boolean; source:'electron-view' };
 
 const EXTRACTION_SCRIPT = `(() => {
@@ -61,9 +62,23 @@ export class BrowserSessionController {
   async goBack(){ await this.ensureReady(); if (this.ensureView().webContents.navigationHistory.canGoBack()) this.ensureView().webContents.navigationHistory.goBack(); return this.getStatus(); }
   async goForward(){ await this.ensureReady(); if (this.ensureView().webContents.navigationHistory.canGoForward()) this.ensureView().webContents.navigationHistory.goForward(); return this.getStatus(); }
   async reload(){ await this.ensureReady(); this.ensureView().webContents.reload(); return this.getStatus(); }
+  async scroll(direction: 'up' | 'down', amount = 700) {
+    await this.ensureReady();
+    const normalizedAmount = Math.max(1, Math.min(5000, Math.floor(Number(amount) || 700)));
+    const top = direction === 'down' ? normalizedAmount : -normalizedAmount;
+    const result = await this.ensureView().webContents.executeJavaScript(`(() => {
+      window.scrollBy({ top: ${top}, behavior: 'instant' });
+      return {
+        scrollY: window.scrollY,
+        innerHeight: window.innerHeight,
+        scrollHeight: document.documentElement.scrollHeight
+      };
+    })()`, true);
+    return result as { scrollY: number; innerHeight: number; scrollHeight: number };
+  }
   async takeScreenshot(){ await this.ensureReady(); const image = await this.ensureView().webContents.capturePage(); return { dataUrl: image.toDataURL() }; }
-  async readCurrentPage(): Promise<BrowserSnapshot> { await this.ensureReady(); const currentUrl = this.ensureView().webContents.getURL() || 'about:blank'; console.log('[browser-main] read current page start url='+currentUrl); try { const payload = await this.ensureView().webContents.executeJavaScript(EXTRACTION_SCRIPT, true) as any; const snapshot = createBrowserSnapshot({ status:'ok', title: payload.title || '', url: payload.url || currentUrl, textExcerpt: payload.visibleText || '', visibleTextSummary: String(payload.visibleText || '').slice(0, 300), clickableCandidates: [], formFields: [] }); console.log(`[browser-main] read current page complete chars=${snapshot.textExcerpt?.length ?? 0} links=${payload.links?.length ?? 0}`); return snapshot; } catch (error) { console.error('[browser-main] read current page failed', error, this.getStatus()); throw new Error(`read_current_page_failed: ${error instanceof Error ? error.message : String(error)}`); } }
-  async extractLinks(): Promise<BrowserLink[]> { await this.ensureReady(); const payload = await this.ensureView().webContents.executeJavaScript(EXTRACTION_SCRIPT, true) as any; return payload.links ?? []; }
+  async readCurrentPage(): Promise<BrowserSnapshot> { await this.ensureReady(); const currentUrl = this.ensureView().webContents.getURL() || 'about:blank'; console.log('[browser-main] read current page start url='+currentUrl); try { const payload = await this.ensureView().webContents.executeJavaScript(EXTRACTION_SCRIPT, true) as ExtractionPayload; const clickableCandidates = (payload.links ?? []).map((link) => ({ id: `link_${link.index}`, role: 'link', index: link.index, type: 'link', label: link.text || link.href, text: link.text || link.href, href: link.href, visible: Boolean(link.visible), riskHints: [], isSubmitLike: false, isDangerous: false, reasonFlags: [] })); const snapshot = createBrowserSnapshot({ status:'ok', title: payload.title || '', url: payload.url || currentUrl, textExcerpt: payload.visibleText || '', visibleTextSummary: String(payload.visibleText || '').slice(0, 300), clickableCandidates, formFields: [] }); console.log(`[browser-main] read current page complete chars=${snapshot.textExcerpt?.length ?? 0} links=${payload.links?.length ?? 0}`); return snapshot; } catch (error) { console.error('[browser-main] read current page failed', error, this.getStatus()); throw new Error(`read_current_page_failed: ${error instanceof Error ? error.message : String(error)}`); } }
+  async extractLinks(): Promise<BrowserLink[]> { await this.ensureReady(); const payload = await this.ensureView().webContents.executeJavaScript(EXTRACTION_SCRIPT, true) as ExtractionPayload; return payload.links ?? []; }
 }
 
 export const browserSessionController = new BrowserSessionController();
