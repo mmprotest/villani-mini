@@ -40,26 +40,37 @@ export class BrowserMissionRunner {
     this.sessions.set(missionId, state); this.emit(state, 'mission_started', 'Mission started'); console.log('[browser-runner] mission_started', missionId); void this.loop(missionId); return state;
   }
   getState(id: string) { return this.sessions.get(id) || browserMissionStore.loadState(id); }
-  getEvents(_id: string) { return []; }
-  getTranscript(_id: string) { return []; }
+  getEvents(id: string) { return browserMissionStore.loadJsonl(id, 'browser_events.jsonl'); }
+  getTranscript(id: string) { return browserMissionStore.loadJsonl(id, 'transcript.jsonl'); }
   pause(id: string) { const s = this.must(id); s.status = 'paused'; this.save(s); return s; }
   resume(id: string) { const s = this.must(id); s.status = 'running'; this.save(s); void this.loop(id); return s; }
   stop(id: string) { const s = this.must(id); s.status = 'blocked'; s.stopReason = 'user_cancelled'; this.save(s); return s; }
-  approve(id: string, _approvalId?: string) { return this.resume(id); }
-  reject(id: string, _approvalId?: string) { return this.resume(id); }
+  approve(id: string, _approvalId?: string) { const s = this.must(id); if (!s.pendingApproval) return s; const pending: any = s.pendingApproval; s.pendingApproval = undefined; s.status = "running"; this.save(s); void this.runPendingTool(s, { toolUseId: pending.id, name: pending.toolName, input: {} }, true); return s; }
+  reject(id: string, _approvalId?: string) { const s = this.must(id); if (!s.pendingApproval) return s; const pending: any = s.pendingApproval; s.pendingApproval = undefined; this.emit(s, "permission_resolved", "User rejected action", { toolName: pending.toolName }); browserMissionStore.appendTranscript(s.missionId, { role: "user", content: [{ type: "tool_result", tool_use_id: pending.toolUseId, is_error: true, content: "User rejected this action" }] }); s.status = "running"; this.save(s); void this.loop(id); return s; }
   private must(id: string) { const s = this.sessions.get(id); if (!s) throw new Error('mission_not_found'); return s; }
   private save(s: BrowserMissionState) { s.updatedAt = new Date().toISOString(); browserMissionStore.saveState(s); }
-  private extractToolCall(message: any): { name: string; input: any } | null {
-    const toolUse = message.content?.find((b: any) => b.type === 'tool_use');
-    if (toolUse?.name) return { name: toolUse.name, input: toolUse.input ?? {} };
+  private extractToolCalls(message: any): Array<{ toolUseId: string; name: string; input: any }> {
+    const native = (message.content ?? []).filter((b: any) => b.type === 'tool_use' && b.name).map((t: any, i: number) => ({ toolUseId: t.id ?? `tool_${i}`, name: t.name, input: t.input ?? {} }));
+    if (native.length) return native;
     const text = message.content?.find((b: any) => b.type === 'text')?.text || '';
     const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
+    if (!match) return [];
     try {
       const parsed = JSON.parse(repairJson(match[0]));
-      if (parsed?.tool && typeof parsed.tool === 'string') return { name: parsed.tool, input: parsed.input ?? {} };
+      if (Array.isArray(parsed?.toolCalls)) return parsed.toolCalls.filter((c:any)=>typeof c?.tool==='string').map((c:any,i:number)=>({toolUseId:c.toolUseId ?? `json_${i}`,name:c.tool,input:c.input ?? {}}));
+      if (parsed?.tool && typeof parsed.tool === 'string') return [{ toolUseId: "json_0", name: parsed.tool, input: parsed.input ?? {} }];
     } catch {}
-    return null;
+    return [];
+  }
+
+  private async runPendingTool(s: BrowserMissionState, pending: { toolUseId: string; name: string; input: any }, approved: boolean) {
+    if (!approved) return;
+    const exec = new BrowserToolExecutor(this.browser);
+    const lifecycle = new BrowserToolLifecycle(exec, (e) => this.emit(s, e.type, e.summary, e.payload), (k, v) => this.debug.record(s.missionId, k, v));
+    const out = await lifecycle.run(s, pending.name, pending.input);
+    browserMissionStore.appendTranscript(s.missionId, { role: 'user', content: [{ type: 'tool_result', tool_use_id: pending.toolUseId, is_error: out.isError, content: out.content }] });
+    this.save(s);
+    void this.loop(s.missionId);
   }
 
   private async loop(id: string) {
@@ -74,12 +85,16 @@ export class BrowserMissionRunner {
       browserMissionStore.appendModelRequest(s.missionId, ctx);
       const res = await this.provider.createMessage({ systemPrompt: SYSTEM_PROMPT, messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify(ctx) }] } as any], tools: browserToolSpecs as any, toolChoice: 'auto' });
       browserMissionStore.appendModelResponse(s.missionId, res.rawResponse ?? res);
-      const call = this.extractToolCall(res.message);
+      const calls = this.extractToolCalls(res.message);
       const txtBlock = res.message.content.find((b: any) => b.type === 'text') as any;
       const text = txtBlock?.text || '';
-      if (call) {
+      if (text) browserMissionStore.appendTranscript(s.missionId, { role: 'assistant', content: [{ type: 'text', text }] });
+      if (calls.length) {
+        for (const call of calls) {
         console.log('[browser-runner] tool_call_started', call.name);
+        browserMissionStore.appendTranscript(s.missionId, { role: 'assistant', content: [{ type: 'tool_use', id: call.toolUseId, name: call.name, input: call.input }] });
         const out = await lifecycle.run(s, call.name, call.input);
+        browserMissionStore.appendTranscript(s.missionId, { role: "user", content: [{ type: "tool_result", tool_use_id: call.toolUseId, is_error: out.isError, content: out.content }] });
         s.toolCallsUsed++;
         browserMissionStore.appendToolCall(s.missionId, { tool: call.name, input: call.input, result: out });
         if (out.observation) { s.lastObservation = out.observation; s.recentObservations.push(out.observation); }
@@ -89,6 +104,8 @@ export class BrowserMissionRunner {
           const sig = `${call.name}:${out.content.slice(0, 40)}`; const c = this.failures.add(sig);
           s.failures = [...this.failures.top().map((x) => ({ signature: x.signature, count: x.count, lastAt: new Date().toISOString() }))];
           if (c >= 3) { s.stopReason = 'repeated_tool_failure'; s.status = 'blocked'; break; }
+        }
+          if (['paused','waiting_for_approval','waiting_for_user','completed','blocked','error'].includes(s.status)) break;
         }
       } else if (text.trim()) {
         // fallback final answer acceptance with evidence check

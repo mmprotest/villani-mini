@@ -34,6 +34,17 @@ export class AgentController {
     const out = await executeAction({ id: `a_${Date.now()}`, taskId, type: tool.name, params: tool.input } as any, this.browser, ()=>{});
     return { pause: null, content: out.ok ? out.observationSummary : `Error: ${out.error ?? out.observationSummary}`, isError: !out.ok };
   }
+
+  private async requestModel(task: any) {
+    if (typeof (this.provider as any).createMessage === 'function') {
+      return (this.provider as any).createMessage({ systemPrompt: this.systemPrompt(), messages: task.transcript ?? [], tools: MINI_TOOL_SPECS, toolChoice: 'auto', temperature: 0, maxTokens: 512 });
+    }
+    const raw = await (this.provider as any).generateText?.(JSON.stringify(task.transcript ?? []));
+    const parsed = JSON.parse(String(raw || '{}'));
+    if (parsed?.type === 'final_answer') return { message: { role: 'assistant', content: [{ type: 'text', text: parsed.params?.summary ?? '' }] } };
+    return { message: { role: 'assistant', content: [{ type: 'tool_use', id: `u_${Date.now()}`, name: parsed?.type, input: parsed?.params ?? {} }] } };
+  }
+
   private buildApprovalMetadata(taskId: string, tool: ToolUseBlock) {
     const input: any = tool.input ?? {};
     const base = { taskId, proposalId: tool.id, toolUseId: tool.id, toolName: tool.name, input, redactedInput: {} as Record<string, unknown>, targetSummary: '', riskReasons: [] as string[], approvalDetails: {} as Record<string, unknown> };
@@ -48,7 +59,7 @@ export class AgentController {
     try {
     while (true) {
       const task:any = this.store.getTask(taskId);
-      const response = await this.provider.createMessage({ systemPrompt: this.systemPrompt(), messages: task.transcript ?? [], tools: MINI_TOOL_SPECS, toolChoice: 'auto', temperature: 0, maxTokens: 512 });
+      const response = await this.requestModel(task);
       this.appendMessage(taskId, response.message);
       const toolUses = response.message.content.filter((b: any) => b.type === 'tool_use') as ToolUseBlock[];
       const text = response.message.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('\n').trim();

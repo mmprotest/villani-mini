@@ -23,14 +23,15 @@ export const MINI_TOOL_SPECS: MiniToolSpec[] = [
   { name: 'read_file', description: 'Read a bounded text file.', input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false } },
   { name: 'write_file', description: 'Write/update a file, subject to approval and path policy.', input_schema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'], additionalProperties: false } },
   { name: 'run_shell_command', description: 'Run a shell command with approval and timeout.', input_schema: { type: 'object', properties: { command: { type: 'string' }, cwd: { type: 'string' }, timeoutMs: { type: 'number' } }, required: ['command'], additionalProperties: false } },
-  { name: 'ask_user', description: 'Ask the user for information that cannot be safely discovered through tools.', input_schema: { type: 'object', properties: { question: { type: 'string' }, reason: { type: 'string' } }, required: ['question'], additionalProperties: false } }
+  { name: 'ask_user', description: 'Ask the user for information that cannot be safely discovered through tools.', input_schema: { type: 'object', properties: { question: { type: 'string' }, reason: { type: 'string' } }, required: ['question'], additionalProperties: false } },
+  { name: 'final_answer', description: 'Provide final answer.', input_schema: { type: 'object', properties: { summary: { type: 'string' }, evidenceRefs: { type: 'array', items: { type: 'string' } }, remainingSteps: { type: 'array', items: { type: 'string' } }, uncertainty: { type: 'string' } }, required: ['summary', 'evidenceRefs', 'remainingSteps', 'uncertainty'], additionalProperties: false } }
 ];
 
 export function toOpenAITools(tools: MiniToolSpec[]): OpenAITool[] {
   return tools.map((tool) => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.input_schema } }));
 }
 
-export function buildActionTools(_allowed: string[]): OpenAITool[] { return toOpenAITools(MINI_TOOL_SPECS); }
+export function buildActionTools(allowed: string[]): OpenAITool[] { return toOpenAITools(MINI_TOOL_SPECS.filter((t)=>allowed.includes(t.name))); }
 export function normalizeToolCallShape(toolCall: any): { name: string; arguments: unknown } {
   const fn = toolCall?.function;
   const name = typeof fn?.name === 'string' ? fn.name : toolCall?.name;
@@ -41,5 +42,6 @@ export function normalizeToolCallShape(toolCall: any): { name: string; arguments
 export function parseToolCallToAction(toolCall: any): { type: string; params: Record<string, unknown> } {
   const { name, arguments: argsRaw } = normalizeToolCallShape(toolCall);
   const args = typeof argsRaw === 'string' ? JSON.parse(argsRaw || '{}') : (argsRaw ?? {});
+  if (!MINI_TOOL_SPECS.some((t)=>t.name===name)) throw new Error('invalid_tool_call_name');
   return { type: name, params: args as Record<string, unknown> };
 }
