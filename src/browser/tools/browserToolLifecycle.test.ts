@@ -1,0 +1,3 @@
+import { describe,it,expect,vi } from 'vitest';import { BrowserToolLifecycle, modeAllows } from './browserToolLifecycle';
+describe('mode guard',()=>{it('denies nav for read mode',()=>{expect(modeAllows('read_current_page','browser_open_url')).toBe(false);});});
+describe('lifecycle',()=>{it('emits events',async()=>{const emit=vi.fn(); const debug=vi.fn(); const exec={execute:vi.fn().mockResolvedValue({content:'ok',isError:false})} as any; const l=new BrowserToolLifecycle(exec,emit,debug); const out=await l.run({mode:'autonomous_browser'} as any,'browser_read_page',{reason:'r'}); expect(out.isError).toBe(false); expect(emit).toHaveBeenCalled(); expect(debug).toHaveBeenCalled();});});

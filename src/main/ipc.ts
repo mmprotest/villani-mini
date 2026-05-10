@@ -10,8 +10,10 @@ import { diagnostics } from '../agent/diagnostics';
 import { checkManagedBrowserReady } from '../browser/ManagedBrowser';
 import { spawn } from 'node:child_process';
 import { logger } from '../diagnostics/logger';
+import { BrowserMissionRunner } from '../agent/browserRunner/BrowserMissionRunner';
 
 const manager = new LlamaServerManager();
+const browserMissionRunner = new BrowserMissionRunner();
 const assets = new LocalAssetManager();
 const err = (code:string,message:string)=>({ok:false,error:{code,message}});
 const emit = (win: BrowserWindow)=>win.webContents.send('modelBackend:statusUpdated', manager.getStatus());
@@ -53,6 +55,7 @@ export function getModelBackendManager(){ return manager; }
 export function getAssetManager(){ return assets; }
 
 export function registerIpc(win: BrowserWindow){
+  browserMissionRunner.onEvent((event)=>win.webContents.send('browserMission:event',event));
   agentController.onEvent((event)=>{
     win.webContents.send('task:event', event);
     chatController.applyTaskEvent(event);
@@ -108,6 +111,17 @@ export function registerIpc(win: BrowserWindow){
   });
   ipcMain.handle('browser:openUrl', async (_,url:string)=>agentController.openBrowserUrl(String(url||'')));
   ipcMain.handle('browser:readCurrentPage', ()=>agentController.readCurrentPage());
+
+
+  ipcMain.handle('browserMission:start', (_,input:any)=>browserMissionRunner.start(input));
+  ipcMain.handle('browserMission:pause', (_,missionId:string)=>browserMissionRunner.pause(String(missionId)));
+  ipcMain.handle('browserMission:resume', (_,missionId:string)=>browserMissionRunner.resume(String(missionId)));
+  ipcMain.handle('browserMission:stop', (_,missionId:string)=>browserMissionRunner.stop(String(missionId)));
+  ipcMain.handle('browserMission:getState', (_,missionId:string)=>browserMissionRunner.getState(String(missionId)));
+  ipcMain.handle('browserMission:getEvents', (_,missionId:string)=>browserMissionRunner.getEvents(String(missionId)));
+  ipcMain.handle('browserMission:getTranscript', (_,missionId:string)=>browserMissionRunner.getTranscript(String(missionId)));
+  ipcMain.handle('browserMission:approve', (_,missionId:string,approvalId:string)=>browserMissionRunner.approve(String(missionId),String(approvalId)));
+  ipcMain.handle('browserMission:reject', (_,missionId:string,approvalId:string)=>browserMissionRunner.reject(String(missionId),String(approvalId)));
 
   ipcMain.handle('task:openDebugFolder', async (_,taskId:string)=>{ const dir=diagnostics.getTaskDebugDir(String(taskId)); if(!dir) return {ok:false,error:'missing_debug_dir'}; const out=await shell.openPath(dir); return {ok:!out,dir,error:out||null}; });
   ipcMain.handle('task:copyDebugSummary', async (_,taskId:string)=>{ const s=agentController.getTaskState(String(taskId)); const lastAction=s.actions[s.actions.length-1]; const lastError=s.actions.filter((a:any)=>a.status==='failed').slice(-1)[0]?.error ?? null; const summary={taskId:s.task.id,goal:s.task.userGoal,status:s.task.status,backend:modelBackendStore.getConfig().endpointUrl,model:modelBackendStore.getConfig().modelName,stepCount:s.actions.length,lastAction:lastAction?.type ?? null,lastErrorCode:lastError,recentEvents:s.events.slice(-8),approvals:s.actions.filter((a:any)=>a.status==='approved'||a.requiresApproval).slice(-8),finalAnswer:s.task.finalAnswer?.summary,blockReason:s.task.finalAnswer?.blockedReason}; const text=JSON.stringify(summary,null,2); clipboard.writeText(text); return {ok:true,summary:text}; });

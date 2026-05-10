@@ -27,6 +27,7 @@ export default function BrowserControlView({
   const [urlInput, setUrlInput] = useState('');
   const [composerValue, setComposerValue] = useState('');
   const [mode, setMode] = useState<BrowserAgentMode>('autonomous_browser');
+  const [missionId, setMissionId] = useState<string>('');
   const [localEvents, setLocalEvents] = useState<BrowserTranscriptEntry[]>([]);
 
   const transcript = useMemo<BrowserTranscriptEntry[]>(() => {
@@ -54,12 +55,16 @@ export default function BrowserControlView({
     finally { setBrowserBusy(false); }
   };
 
-  const onSubmit = () => {
+  const onSubmit = async () => {
     const v = composerValue.trim();
-    if (!v) return;
-    setLocalEvents((prev) => [...prev, { id: crypto.randomUUID(), at: new Date().toISOString(), actor: 'user', kind: 'user_message', text: v }, { id: crypto.randomUUID(), at: new Date().toISOString(), actor: 'system', kind: 'browser_observation', text: mode === 'autonomous_browser' ? 'Browser runner is not implemented yet in this phase.' : 'Mode captured. Runner path is pending.' }]);
+    if (!v || !window.villani?.browserMission?.start) return;
+    const mission = await window.villani.browserMission.start({ goal: v, mode, browserSessionId: 'default' });
+    setMissionId(mission.missionId);
+    setLocalEvents((prev) => [...prev, { id: crypto.randomUUID(), at: new Date().toISOString(), actor: 'user', kind: 'user_message', text: v }]);
     setComposerValue('');
   };
+
+  React.useEffect(() => window.villani?.events?.onBrowserMissionEvent?.((e:any)=>{ if(!missionId || e.missionId!==missionId) return; setLocalEvents((prev)=>[...prev,{id:e.id,at:e.at,actor:'system',kind:'browser_observation',text:e.summary,metadata:e.payload}]); }), [missionId]);
 
   return <div className='browser-control-page'>
     <header className='browser-page-header'>

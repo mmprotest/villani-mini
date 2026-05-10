@@ -1,0 +1,2 @@
+import { describe,it,expect } from 'vitest';import { buildBrowserContextPacket } from './BrowserContextBudget';
+describe('context budget',()=>{it('truncates text',()=>{const s:any={missionId:'m',userGoal:'g',mode:'autonomous_browser',phase:'reading',lastObservation:{mainTextExcerpt:'a'.repeat(5000),links:[]},sourcesCollected:[],failures:[],turnsUsed:0,toolCallsUsed:0}; const p=buildBrowserContextPacket(s,{maxChars:100}); expect(p.pageExcerpt.length).toBe(100);});});
