@@ -1,2 +1,23 @@
 import { z } from 'zod';
-export const browserToolSchemas={browser_get_state:z.object({}),browser_open_url:z.object({url:z.string().url(),reason:z.string().min(1)}),browser_search_web:z.object({query:z.string().min(1),engine:z.enum(['duckduckgo','google','perplexity']).optional(),reason:z.string().min(1)}),browser_wait_for_load:z.object({reason:z.string()}),browser_read_page:z.object({reason:z.string()}),browser_extract_links:z.object({reason:z.string()}),browser_open_link:z.object({linkIndex:z.number().int().nonnegative(),reason:z.string()}),browser_scroll:z.object({direction:z.enum(['up','down']),amount:z.number().optional(),reason:z.string()}),browser_take_screenshot:z.object({reason:z.string()}),browser_go_back:z.object({reason:z.string()}),browser_go_forward:z.object({reason:z.string()}),browser_reload:z.object({reason:z.string()})};
+
+export const browserToolSchemas = {
+  browser_get_state: z.object({}),
+  browser_open_url: z.object({ url: z.string().url(), reason: z.string().min(1) }),
+  browser_search_web: z.object({ query: z.string().min(1), engine: z.enum(['duckduckgo', 'google', 'perplexity']).optional(), reason: z.string().min(1) }),
+  browser_wait_for_load: z.object({ reason: z.string() }),
+  browser_read_page: z.object({ reason: z.string() }),
+  browser_extract_links: z.object({ reason: z.string() }),
+  browser_open_link: z.object({ linkIndex: z.number().int().nonnegative(), reason: z.string() }),
+  browser_scroll: z.object({ direction: z.enum(['up', 'down']), amount: z.number().optional(), reason: z.string() }),
+  browser_take_screenshot: z.object({ reason: z.string() }),
+  browser_go_back: z.object({ reason: z.string() }),
+  browser_go_forward: z.object({ reason: z.string() }),
+  browser_reload: z.object({ reason: z.string() }),
+  browser_finish_task: z.object({ summary: z.string(), keyFindings: z.array(z.string()), sources: z.array(z.object({ title: z.string(), url: z.string().url(), summary: z.string() })), uncertainty: z.string(), remainingSteps: z.array(z.string()) })
+};
+
+export const browserToolSpecs = Object.keys(browserToolSchemas).map((name) => ({
+  name,
+  description: `Browser tool: ${name}`,
+  input_schema: { type: 'object', properties: {}, additionalProperties: true }
+}));
