@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { formatTraceRow, redactSensitive } from './taskDebug';
+import BrowserControlView from './browser/BrowserControlView';
 
 type View = 'Home' | 'Activities' | 'Browser Control' | 'Commands' | 'History' | 'Settings';
 type Task = { id: string; status: string; createdAt?: string; finalAnswer?: { blockedReason?: string; summary?: string }; updatedAt?: string; userGoal?: string };
@@ -35,7 +36,6 @@ export default function HomeView() {
   const [taskLoading, setTaskLoading] = useState(false);
   const [taskError, setTaskError] = useState('');
   const [browserInfo, setBrowserInfo] = useState<any>(null);
-  const [urlInput, setUrlInput] = useState('');
   const [browserBusy, setBrowserBusy] = useState(false);
   const [browserError, setBrowserError] = useState('');
   const [cfg, setCfg] = useState<any>(null);
@@ -97,7 +97,7 @@ export default function HomeView() {
         })}</div>{responseError && <p className='subtle'>{responseError}</p>}</section>
       </>}
       {view === 'Activities' && <div className='panel'><h2>Activities</h2>{taskError && <p>{taskError}</p>}{renderTaskRows(tasks.filter(t => ['running','idle','waiting_for_approval','waiting_for_user'].includes(t.status)))}</div>}
-      {view === 'Browser Control' && <div className='panel'><h2>Browser Control</h2>{browserError && <p>{browserError}</p>}<p>Status: {browserInfo ? 'available' : 'no snapshot yet'}</p><p>URL: {browserInfo?.url || 'n/a'}</p><div className='row-actions'><input value={urlInput} onChange={(e) => setUrlInput(e.target.value)} placeholder='https://example.com' /><button disabled={browserBusy || !urlInput.trim()} onClick={async()=>{ setBrowserBusy(true); try { setBrowserInfo(await window.villani.browser.openUrl(urlInput.trim())); } finally { setBrowserBusy(false); } }}>Open URL</button><button disabled={browserBusy} onClick={async()=>{ setBrowserBusy(true); try { setBrowserInfo(await window.villani.browser.readCurrentPage()); } finally { setBrowserBusy(false); } }}>Read page</button></div></div>}
+      {view === 'Browser Control' && <BrowserControlView browserInfo={browserInfo} setBrowserInfo={setBrowserInfo} browserError={browserError} setBrowserError={setBrowserError} browserBusy={browserBusy} setBrowserBusy={setBrowserBusy} messages={messages} ready={ready} />}
       {view === 'Commands' && <div className='panel'><h2>Commands</h2><p className='subtle'>Use Home quick actions or composer to run commands.</p></div>}
       {view === 'History' && <div className='panel'><h2>History</h2>{renderTaskRows(tasks.filter(t => ['completed','blocked','error','stopped'].includes(t.status)))}{taskLoading && <p>Loading...</p>}{selectedTask && <pre>{JSON.stringify(selectedTask, null, 2)}</pre>}</div>}
       {view === 'Settings' && <div className='panel'><h2>Settings</h2><p>Base URL: {backend?.endpointUrl || cfg?.endpointUrl || 'n/a'}</p><p>Model: {cfg?.modelName || 'local-model'}</p><p>Mode: {cfg?.mode || 'n/a'}</p><p>Browser automation: {setupStatus?.browserAutomationStatus || 'unchecked'}</p><div className='row-actions'><input value={cfgEdit.endpointUrl} onChange={(e)=>setCfgEdit({...cfgEdit,endpointUrl:e.target.value})} placeholder='endpoint url' /><input value={cfgEdit.modelName} onChange={(e)=>setCfgEdit({...cfgEdit,modelName:e.target.value})} placeholder='model name' /><select value={cfgEdit.mode} onChange={(e)=>setCfgEdit({...cfgEdit,mode:e.target.value})}><option value='bundled_llama_server'>bundled_llama_server</option><option value='external_openai_compatible'>external_openai_compatible</option></select><button onClick={async()=>{ await window.villani.config.updateBackendConfig(cfgEdit); await loadConfig(); }}>Save</button></div></div>}
