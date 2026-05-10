@@ -11,6 +11,7 @@ import { checkManagedBrowserReady } from '../browser/ManagedBrowser';
 import { spawn } from 'node:child_process';
 import { logger } from '../diagnostics/logger';
 import { BrowserMissionRunner } from '../agent/browserRunner/BrowserMissionRunner';
+import { browserViewportManager, type ViewportBounds } from './browserViewportManager';
 
 const manager = new LlamaServerManager();
 const browserMissionRunner = new BrowserMissionRunner();
@@ -109,7 +110,12 @@ export function registerIpc(win: BrowserWindow){
       child.on('exit',(code)=>{ if (code===0) { console.log('[setup] browser automation: install completed'); resolve({ok:true,status:'installed'}); } else { console.log(`[setup] browser automation: install failed: exit ${code}`); console.log('[setup] browser automation: suggested manual fix: npx playwright install chromium'); resolve({ok:false,status:'failed',suggestedCommand:command}); } });
     });
   });
-  ipcMain.handle('browser:openUrl', async (_,url:string)=>agentController.openBrowserUrl(String(url||'')));
+
+  ipcMain.handle('browser:attachToViewport', (_, bounds: ViewportBounds)=>browserViewportManager.setBounds(win, bounds));
+  ipcMain.handle('browser:show', ()=>browserViewportManager.show(win));
+  ipcMain.handle('browser:hide', ()=>browserViewportManager.hide(win));
+  ipcMain.handle('browser:getViewportStatus', ()=>browserViewportManager.getStatus());
+  ipcMain.handle('browser:openUrl', async (_,url:string)=>{ const next = String(url||''); await browserViewportManager.openUrl(win, next); return agentController.openBrowserUrl(next); });
   ipcMain.handle('browser:readCurrentPage', ()=>agentController.readCurrentPage());
 
 
