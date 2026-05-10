@@ -1,6 +1,5 @@
 import { LocalOpenAIModelProvider } from '../../model/LocalOpenAIModelProvider';
 import { repairJson } from '../../model/jsonRepair';
-import { ManagedBrowser } from '../../browser/ManagedBrowser';
 import { BrowserToolExecutor } from '../../browser/tools/browserToolExecutor';
 import { BrowserToolLifecycle } from '../../browser/tools/browserToolLifecycle';
 import { browserMissionStore } from '../../browser/browserMissionStore';
@@ -10,6 +9,7 @@ import { decideBrowserStop } from './BrowserStopDecider';
 import { BrowserFailureClassifier } from './BrowserFailureClassifier';
 import { BrowserDebugRecorder } from './BrowserDebugRecorder';
 import { browserToolSpecs } from '../../browser/tools/browserToolSchemas';
+import { browserSessionController } from '../../main/BrowserSessionController';
 
 const SYSTEM_PROMPT = `You are Villani Browser Runner. You operate a real browser ONLY through tools.
 You do not have browser access except through tool results.
@@ -28,7 +28,7 @@ export class BrowserMissionRunner {
   private listeners = new Set<(e: any) => void>();
   private failures = new BrowserFailureClassifier();
   private debug = new BrowserDebugRecorder();
-  constructor(private provider = new LocalOpenAIModelProvider(), private browser = new ManagedBrowser()) {}
+  constructor(private provider = new LocalOpenAIModelProvider(), private browser = browserSessionController) {}
   onEvent(cb: (e: any) => void) { this.listeners.add(cb); return () => this.listeners.delete(cb); }
   private emit(s: BrowserMissionState, type: any, summary: string, payload: any = {}) {
     const ev = { id: `be_${Date.now()}`, missionId: s.missionId, taskId: s.taskId, browserSessionId: s.browserSessionId, at: new Date().toISOString(), type, summary, payload };

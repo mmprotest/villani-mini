@@ -47,8 +47,13 @@ declare global {
       };
       browser: {
         getStatus: () => Promise<any>;
+        getViewportStatus: () => Promise<any>;
+        attachToViewport: (bounds: any) => Promise<any>;
+        show: () => Promise<any>;
+        hide: () => Promise<any>;
         openUrl: (url: string) => Promise<any>;
         readCurrentPage: () => Promise<any>;
+        extractLinks: () => Promise<any>;
         installDependencies: () => Promise<any>;
       };
 
