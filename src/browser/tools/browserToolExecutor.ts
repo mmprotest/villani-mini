@@ -34,6 +34,11 @@ export class BrowserToolExecutor {
         return { content, isError: false, observation: o, sourceNote };
       }
       if (name === 'browser_open_link') { const link = lastObs?.links?.[input.linkIndex]; if (!link) return { content: 'Invalid link index', isError: true }; const s = await this.browser.openUrl(link.href); return { content: `Opened link ${input.linkIndex}`, isError: false, observation: snapshotToObservation(s) }; }
+      if (name === 'browser_scroll') { const s = await this.browser.scroll(input.direction, input.amount); return { content: `Scrolled ${input.direction}`, isError: false, observation: snapshotToObservation(s) }; }
+      if (name === 'browser_take_screenshot') { const png = await this.browser.takeScreenshot(); return { content: `Screenshot captured (${png.length} bytes)`, isError: false }; }
+      if (name === 'browser_go_back') { const s = await this.browser.goBack(); return { content: 'Navigated back', isError: false, observation: snapshotToObservation(s) }; }
+      if (name === 'browser_go_forward') { const s = await this.browser.goForward(); return { content: 'Navigated forward', isError: false, observation: snapshotToObservation(s) }; }
+      if (name === 'browser_reload') { const s = await this.browser.reload(); return { content: 'Page reloaded', isError: false, observation: snapshotToObservation(s) }; }
       return { content: `${name} not implemented`, isError: true };
     } catch (e: any) { return { content: String(e?.message || e), isError: true }; }
   }

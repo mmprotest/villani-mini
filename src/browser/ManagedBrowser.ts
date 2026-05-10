@@ -172,6 +172,22 @@ export class ManagedBrowser {
     return { ok: true, snapshot, postActionObservation: `urlChanged=${beforeUrl !== snapshot.url}` };
   }
 
+
+  async scroll(direction: 'up' | 'down', amount = 800) {
+    if (!this.page) throw new Error('Browser not launched');
+    const delta = direction === 'up' ? -Math.abs(amount) : Math.abs(amount);
+    await this.page.mouse.wheel(0, delta);
+    return this.readSnapshot();
+  }
+
+  async takeScreenshot() {
+    if (!this.page) throw new Error('Browser not launched');
+    return this.page.screenshot({ type: 'png', fullPage: false });
+  }
+
+  async goBack() { if (!this.page) throw new Error('Browser not launched'); await this.page.goBack({ waitUntil: 'domcontentloaded' }); return this.readSnapshot(); }
+  async goForward() { if (!this.page) throw new Error('Browser not launched'); await this.page.goForward({ waitUntil: 'domcontentloaded' }); return this.readSnapshot(); }
+  async reload() { if (!this.page) throw new Error('Browser not launched'); await this.page.reload({ waitUntil: 'domcontentloaded' }); return this.readSnapshot(); }
   async close(): Promise<void> { if (this.closed) return; this.closed = true; await this.page?.close().catch(() => {}); await this.context?.close().catch(() => {}); await this.browser?.close().catch(() => {}); this.page = undefined; this.context = undefined; this.browser = undefined; }
 }
 
