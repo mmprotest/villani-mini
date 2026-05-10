@@ -1,0 +1,2 @@
+import { browserMissionStore } from '../../browser/browserMissionStore';
+export class BrowserDebugRecorder{record(missionId:string,kind:string,payload:unknown){if(kind==='model_request') browserMissionStore.appendModelRequest(missionId,payload); else if(kind==='model_response') browserMissionStore.appendModelResponse(missionId,payload); else browserMissionStore.appendToolCall(missionId,{kind,payload,at:new Date().toISOString()});}}

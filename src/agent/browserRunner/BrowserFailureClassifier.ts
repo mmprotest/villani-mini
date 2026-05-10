@@ -1,0 +1,1 @@
+export class BrowserFailureClassifier{ private map=new Map<string,number>(); add(signature:string){const n=(this.map.get(signature)||0)+1; this.map.set(signature,n); return n;} get(signature:string){return this.map.get(signature)||0;} top(){return [...this.map.entries()].map(([signature,count])=>({signature,count}));}}

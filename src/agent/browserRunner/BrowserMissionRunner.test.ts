@@ -1,0 +1,2 @@
+import { describe,it,expect } from 'vitest';import { BrowserMissionRunner } from './BrowserMissionRunner';
+describe('mission runner',()=>{it('start stop',()=>{const runner=new BrowserMissionRunner({createMessage: async()=>({message:{content:[{type:'text',text:'done'}]}})} as any,{ } as any); const s=runner.start({goal:'g',mode:'autonomous_browser',browserSessionId:'b'}); expect(s.missionId).toBeTruthy(); const stopped=runner.stop(s.missionId); expect(stopped.stopReason).toBe('user_cancelled');});});

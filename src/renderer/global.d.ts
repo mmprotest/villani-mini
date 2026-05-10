@@ -51,6 +51,19 @@ declare global {
         readCurrentPage: () => Promise<any>;
         installDependencies: () => Promise<any>;
       };
+
+      browserMission: {
+        start: (input: any) => Promise<any>;
+        pause: (missionId: string) => Promise<any>;
+        resume: (missionId: string) => Promise<any>;
+        stop: (missionId: string) => Promise<any>;
+        getState: (missionId: string) => Promise<any>;
+        getEvents: (missionId: string) => Promise<any[]>;
+        getTranscript: (missionId: string) => Promise<any[]>;
+        approve: (missionId: string, approvalId: string) => Promise<any>;
+        reject: (missionId: string, approvalId: string) => Promise<any>;
+      };
+      events: { onBrowserMissionEvent: (cb: (event: any) => void) => Unsubscribe; };
       config: {
         getBackendConfig: () => Promise<any>;
         updateBackendConfig: (patch: any) => Promise<any>;
